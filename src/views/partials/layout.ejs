@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title><%= title || 'Pakka Role Profile' %></title>
+    <meta name="description" content="Pakka Role Profile — Member list with roles, sanghs, and contact information.">
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@mdi/font@7.2.96/css/materialdesignicons.min.css">
+
+    <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+    <link rel="stylesheet" href="https://cdn.datatables.net/2.0.2/css/dataTables.dataTables.css">
+    <script src="https://cdn.datatables.net/2.0.2/js/dataTables.js"></script>
+    <link rel="stylesheet" href="https://cdn.datatables.net/buttons/3.0.2/css/buttons.dataTables.css">
+    <script src="https://cdn.datatables.net/buttons/3.0.2/js/dataTables.buttons.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script src="https://cdn.datatables.net/buttons/3.0.2/js/buttons.html5.min.js"></script>
+
+    <link rel="stylesheet" href="/css/app.css">
+    <%- typeof pageStyle !== 'undefined' ? pageStyle : '' %>
+</head>
+<body>
+<%
+  const navItem = (key, url, icon, label) =>
+    `<a class="rp-nav-item${activeNav === key ? ' active' : ''}" href="${url}">` +
+    `<i class="mdi ${icon}"></i>${label}</a>`;
+%>
+<div class="rp-shell">
+    <aside class="rp-sidebar" id="rpSidebar">
+        <a class="rp-sidebar-brand" href="/">
+            <div class="rp-brand-icon"><i class="mdi mdi-account-group"></i></div>
+            <div class="rp-brand-text">
+                <span class="rp-brand-title">Pakka Role Profile</span>
+                <span class="rp-brand-subtitle">Member Directory</span>
+            </div>
+        </a>
+
+        <nav class="rp-sidebar-nav">
+            <% if (loggedIn) { %>
+                <% if (rpLeads > 0 || me.isAdmin) { %>
+                    <div class="rp-nav-section">Browse</div>
+                    <% if (rpLeads > 0) { %><%- navItem('my-members', '/my-members', 'mdi-account-supervisor-outline', 'My Members') %><% } %>
+                    <% if (me.isAdmin) { %><%- navItem('members', '/', 'mdi-format-list-bulleted', 'Member List') %><% } %>
+                <% } %>
+
+                <div class="rp-nav-section">Role Profiles</div>
+                <%- navItem('role-profiles', '/role-profiles', 'mdi-file-document-edit-outline', 'Role Profiles') %>
+                <%- navItem('assessments', '/assessments', 'mdi-clipboard-check-outline', 'Assessments') %>
+                <% if (rpLeads > 0 || me.isAdmin || me.isLdpAdmin) { %><%- navItem('designations', '/designations', 'mdi-badge-account-outline', 'Designations') %><% } %>
+
+                <% if (me.isAdmin) { %>
+                    <div class="rp-nav-section">Assign Roles (PSP)</div>
+                    <%- navItem('assign-sangh', '/assign/sangh', 'mdi-account-group-outline', 'By Sangh') %>
+                    <%- navItem('assign-member', '/assign', 'mdi-account-edit-outline', 'By Member') %>
+                <% } %>
+
+                <% if (me.isLdpAdmin) { %>
+                    <div class="rp-nav-section">Assign Roles (LDP)</div>
+                    <%- navItem('ldp-assign', '/ldp-assign', 'mdi-shield-account-outline', 'LDP Members') %>
+                <% } %>
+
+                <div class="rp-nav-section">Account</div>
+                <%- navItem('logout', '/logout', 'mdi-logout', 'Sign Out') %>
+            <% } else { %>
+                <div class="rp-nav-section">Account</div>
+                <%- navItem('login', '/login', 'mdi-login', 'Sign In') %>
+            <% } %>
+        </nav>
+
+        <div class="rp-sidebar-foot">
+            <div class="rp-sidebar-user">
+                <i class="mdi mdi-account-circle-outline"></i>
+                <% if (loggedIn) { %>
+                    <div>
+                        <div><%= me.name || me.code %></div>
+                        <%
+                          const badges = [];
+                          if (me.isAdmin) badges.push('PSP Approver');
+                          if (me.isLdpAdmin) badges.push('LDP Admin');
+                        %>
+                        <div class="code"><%= me.code %><%= badges.length ? ' · ' + badges.join(' · ') : '' %></div>
+                    </div>
+                <% } else { %>
+                    <div><div>Viewing as guest</div><div class="code">Sign in to continue</div></div>
+                <% } %>
+            </div>
+        </div>
+    </aside>
+
+    <div class="rp-sidebar-scrim" id="rpScrim"></div>
+
+    <div class="rp-main">
+        <header class="rp-topbar">
+            <button type="button" class="rp-menu-toggle" id="rpMenuToggle" aria-label="Open menu">
+                <i class="mdi mdi-menu"></i>
+            </button>
+            <span class="rp-topbar-title"><%= pageTitle || 'Member List' %></span>
+            <div class="rp-topbar-right">
+                <% if (loggedIn) { %>
+                    <a class="rp-bell<%= rpUnread > 0 ? ' has-unread' : '' %>" href="/notifications"
+                       title="<%= rpUnread %> unread notification(s)">
+                        <i class="mdi mdi-bell-outline"></i>
+                        <% if (rpUnread > 0) { %><span class="rp-bell-count"><%= rpUnread > 99 ? '99+' : rpUnread %></span><% } %>
+                    </a>
+                    <% if (rpPending > 0) { %>
+                        <a class="rp-pending-pill" href="/role-profiles">
+                            <i class="mdi mdi-clock-alert-outline"></i> <%= rpPending %> awaiting you
+                        </a>
+                    <% } %>
+                <% } %>
+                <div class="rp-nav-stat">
+                    <i class="mdi mdi-clock-outline"></i>
+                    <div>
+                        <div class="rp-nav-stat-label">Date</div>
+                        <div class="rp-nav-stat-value"><%= new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) %></div>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <main class="rp-page">
+            <% if (flashError) { %>
+                <div class="rp-alert rp-alert-error"><i class="mdi mdi-alert-circle-outline"></i> <%= flashError %></div>
+            <% } %>
+            <% if (flashSuccess) { %>
+                <div class="rp-alert rp-alert-success"><i class="mdi mdi-check-circle-outline"></i> <%= flashSuccess %></div>
+            <% } %>
+            <%- body %>
+        </main>
+
+        <footer class="rp-footer">
+            <span class="rp-footer-brand">Pakka</span> &copy; <%= new Date().getFullYear() %>. All rights reserved.
+        </footer>
+    </div>
+</div>
+
+<script>
+    (function () {
+        var sidebar = document.getElementById('rpSidebar');
+        var scrim = document.getElementById('rpScrim');
+        function toggle() { sidebar.classList.toggle('open'); scrim.classList.toggle('open'); }
+        document.getElementById('rpMenuToggle').addEventListener('click', toggle);
+        scrim.addEventListener('click', toggle);
+    })();
+</script>
+<%- typeof pageScript !== 'undefined' ? pageScript : '' %>
+</body>
+</html>

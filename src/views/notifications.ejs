@@ -1,0 +1,44 @@
+<%
+  const icons = { pending: 'mdi-clock-alert-outline', approved: 'mdi-check-circle-outline',
+                  rejected: 'mdi-close-circle-outline', info: 'mdi-information-outline' };
+  const unread = items.filter(i => Number(i.is_read) === 0).length;
+%>
+<div class="rp-card">
+    <div class="rp-card-header">
+        <div class="rp-card-header-left">
+            <div class="rp-card-header-icon"><i class="mdi mdi-bell-outline"></i></div>
+            <div>
+                <div class="rp-card-title">Notifications</div>
+                <div class="rp-card-subtitle"><%= items.length === 0 ? 'Nothing yet' : unread + ' unread of ' + items.length %></div>
+            </div>
+        </div>
+    </div>
+    <div class="rp-card-body">
+        <% if (items.length === 0) { %>
+            <div class="rp-empty">
+                <i class="mdi mdi-bell-sleep-outline"></i>
+                <p>No notifications yet.<br>You will be told when something needs your approval, or when a role profile you are involved in changes.</p>
+            </div>
+        <% } else { %>
+            <% if (unread > 0) { %>
+                <div class="rp-note-actions">
+                    <form method="post" action="/notifications/read-all">
+                        <input type="hidden" name="csrf_test_name" value="<%= csrfToken %>">
+                        <button type="submit" class="rp-btn-readall"><i class="mdi mdi-check-all"></i> Mark all as read</button>
+                    </form>
+                </div>
+            <% } %>
+            <% items.forEach(item => { const type = item.type || 'info'; %>
+                <a class="rp-note<%= Number(item.is_read) === 0 ? ' unread' : '' %>" href="/notifications/<%= item.id %>/open">
+                    <span class="rp-note-icon rp-note-<%= type %>"><i class="mdi <%= icons[type] || icons.info %>"></i></span>
+                    <span class="rp-note-body">
+                        <span class="rp-note-title"><%= item.title %></span>
+                        <% if (String(item.body || '').trim()) { %><div class="rp-note-text"><%= item.body %></div><% } %>
+                        <div class="rp-note-time"><%= fmtDateTime(item.created_at) %></div>
+                    </span>
+                    <% if (Number(item.is_read) === 0) { %><span class="rp-note-dot"></span><% } %>
+                </a>
+            <% }) %>
+        <% } %>
+    </div>
+</div>

@@ -1,0 +1,160 @@
+<%
+  const icons = { rp_approver: 'mdi-account-heart-outline', rp_creator: 'mdi-shield-account-outline', pracharak: 'mdi-bullhorn-outline' };
+  const person = (name, variant) => String(name || '').trim() === ''
+    ? '<span class="rp-none">—</span>'
+    : '<span class="rp-person rp-person-' + variant + '"><i class="mdi ' + icons[variant] + '"></i>' + h(name) + '</span>';
+  const total = members.length;
+%>
+<div class="rp-card">
+    <div class="rp-card-header">
+        <div class="rp-card-header-left">
+            <div class="rp-card-header-icon"><i class="mdi mdi-account-switch-outline"></i></div>
+            <div>
+                <div class="rp-card-title">Assign Roles</div>
+                <div class="rp-card-subtitle">Set or clear the RP Approver, RP Creator and Pracharak for each member</div>
+            </div>
+        </div>
+    </div>
+    <div class="rp-card-body">
+
+        <div class="rp-coverage">
+            <% Object.entries(roles).forEach(([role, cols]) => { %>
+                <div class="rp-coverage-item">
+                    <div class="n"><%= counts[role].toLocaleString('en-IN') %> <span style="font-size:0.8rem;font-weight:600;color:var(--text-muted)">/ <%= total.toLocaleString('en-IN') %></span></div>
+                    <div class="l"><%= cols.label %> assigned</div>
+                </div>
+            <% }) %>
+        </div>
+
+        <div class="rp-filter-bar">
+            <span class="rp-filter-label">Show:</span>
+            <button type="button" class="rp-chip active" data-filter="all">All members</button>
+            <button type="button" class="rp-chip" data-filter="rp_approver">Missing RP Approver</button>
+            <button type="button" class="rp-chip" data-filter="rp_creator">Missing RP Creator</button>
+            <button type="button" class="rp-chip" data-filter="pracharak">Missing Pracharak</button>
+            <button type="button" class="rp-chip" data-filter="any">Missing anything</button>
+        </div>
+
+        <div class="table-responsive">
+            <table class="display" id="assignTable" style="width:100%">
+                <thead>
+                    <tr><th>Member Code</th><th>Name</th><th>Sangh</th><th>Grade</th><th>RP Approver</th><th>RP Creator</th><th>Pracharak</th><th>Action</th></tr>
+                </thead>
+                <tbody>
+                <% members.forEach(m => { %>
+                    <%
+                      const empCode = String(m.emp_code || '');
+                      const values = {};
+                      for (const [role, cols] of Object.entries(roles)) {
+                          const code = String(m[cols.code] || '').trim();
+                          const name = String(m[cols.name] || '').trim();
+                          // Pracharak candidates may have no emp_code; the name is then the key.
+                          values[role] = code !== '' ? code : name;
+                      }
+                    %>
+                    <tr data-emp-code="<%= empCode %>"
+                        data-name="<%= m.name || '' %>"
+                        data-sangh-code="<%= m.sangh_code || '' %>"
+                        data-meta="<%= (empCode + ' · ' + (m.sangh_name || '—')).trim() %>"
+                        data-values="<%= JSON.stringify(values) %>">
+                        <td><span class="emp-code-cell"><%= empCode %></span></td>
+                        <td>
+                            <span class="rp-name-cell">
+                                <span class="emp-name"><%= m.name || '' %></span>
+                                <% if (m.email_id) { %>
+                                    <a href="mailto:<%= m.email_id %>" class="emp-email"><%= m.email_id %></a>
+                                <% } else { %>
+                                    <span class="rp-no-email">no email on record</span>
+                                <% } %>
+                            </span>
+                        </td>
+                        <td><span class="emp-sangh"><%= m.sangh_name ? m.sangh_name : '—' %></span></td>
+                        <td><span class="emp-grade"><%= m.grade || '—' %></span></td>
+                        <% Object.entries(roles).forEach(([role, cols]) => { %>
+                            <td class="rp-cell-<%= role %>"><%- person(m[cols.name], role) %></td>
+                        <% }) %>
+                        <td><button type="button" class="rp-edit-btn js-assign-edit"><i class="mdi mdi-pencil-outline"></i> Edit</button></td>
+                    </tr>
+                <% }) %>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<%- await include('partials/assign_editor') %>
+
+<script>
+$(document).ready(function () {
+    var ICONS = <%- JSON.stringify(icons) %>;
+    var COLUMN = { rp_approver: 4, rp_creator: 5, pracharak: 6 };
+    var filter = 'all';
+
+    function isMissing(settings, dataIndex, role) {
+        var cell = settings.aoData[dataIndex].anCells[COLUMN[role]];
+        return $(cell).find('.rp-none').length > 0;
+    }
+
+    $.fn.dataTable.ext.search.push(function (settings, data, dataIndex) {
+        if (settings.nTable.id !== 'assignTable' || filter === 'all') { return true; }
+        if (filter === 'any') {
+            return isMissing(settings, dataIndex, 'rp_approver')
+                || isMissing(settings, dataIndex, 'rp_creator')
+                || isMissing(settings, dataIndex, 'pracharak');
+        }
+        return isMissing(settings, dataIndex, filter);
+    });
+
+    var table = new DataTable('#assignTable', {
+        pageLength: 25,
+        order: [],
+        columnDefs: [{ targets: [7], orderable: false, searchable: false }],
+        language: {
+            search: '<i class="mdi mdi-magnify"></i>',
+            searchPlaceholder: 'Search members...',
+            lengthMenu: 'Show _MENU_ entries',
+            info: 'Showing _START_ to _END_ of _TOTAL_ members',
+            infoEmpty: 'No members to show',
+            zeroRecords: 'No members match your search',
+            paginate: { first: '<i class="mdi mdi-chevron-double-left"></i>', last: '<i class="mdi mdi-chevron-double-right"></i>',
+                        previous: '<i class="mdi mdi-chevron-left"></i>', next: '<i class="mdi mdi-chevron-right"></i>' }
+        }
+    });
+
+    $('.rp-chip').on('click', function () {
+        $('.rp-chip').removeClass('active');
+        $(this).addClass('active');
+        filter = $(this).data('filter');
+        table.draw();
+    });
+
+    $('#assignTable tbody').on('click', '.js-assign-edit', function () {
+        var $row = $(this).closest('tr');
+        RP_ASSIGN.open({
+            scope: 'member',
+            key: $row.data('emp-code'),
+            sanghCode: $row.data('sangh-code'),
+            name: $row.data('name') || $row.data('emp-code'),
+            meta: $row.data('meta'),
+            values: $row.data('values') || {}
+        });
+    });
+
+    RP_ASSIGN.onSaved(function (empCode, role, personName, personKey) {
+        var $row = $('#assignTable tbody tr').filter(function () {
+            return String($(this).data('emp-code')) === String(empCode);
+        });
+        if (!$row.length) { return; }
+
+        var html = personName
+            ? '<span class="rp-person rp-person-' + role + '"><i class="mdi ' + ICONS[role] + '"></i>' + $('<div>').text(personName).html() + '</span>'
+            : '<span class="rp-none">—</span>';
+        $row.find('.rp-cell-' + role).html(html);
+
+        // Keep the row's cached selection in step for the next edit.
+        var values = $row.data('values') || {};
+        values[role] = personKey;
+        $row.data('values', values);
+    });
+});
+</script>

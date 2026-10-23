@@ -1,0 +1,90 @@
+<%
+  const roleIcons = { rp_approver: 'mdi-account-heart-outline', rp_creator: 'mdi-shield-account-outline', pracharak: 'mdi-bullhorn-outline' };
+  const roleLabels = { rp_approver: 'RP Approver', rp_creator: 'RP Creator', pracharak: 'Pracharak' };
+  const held = Object.keys(roles).filter(r => roles[r] > 0);
+  const sanghCount = Object.keys(bySangh).length;
+%>
+<div class="rp-card">
+    <div class="rp-card-header">
+        <div class="rp-card-header-left">
+            <div class="rp-card-header-icon"><i class="mdi mdi-account-supervisor-outline"></i></div>
+            <div>
+                <div class="rp-card-title">My Members</div>
+                <div class="rp-card-subtitle"><%= members.length.toLocaleString() %> members across <%= sanghCount %> sangh<%= sanghCount === 1 ? '' : 's' %></div>
+            </div>
+        </div>
+    </div>
+    <div class="rp-card-body">
+        <div class="rp-summary">
+            <div class="rp-summary-item">
+                <div class="n"><%= members.length.toLocaleString() %></div>
+                <div class="l">Total members</div>
+            </div>
+            <% held.forEach(role => { %>
+                <div class="rp-summary-item">
+                    <div class="n"><%= roles[role].toLocaleString() %></div>
+                    <div class="l">As their <%= roleLabels[role] %></div>
+                </div>
+            <% }) %>
+            <div class="rp-summary-item">
+                <div class="n"><%= sanghCount %></div>
+                <div class="l">Sangh<%= sanghCount === 1 ? '' : 's' %> covered</div>
+            </div>
+        </div>
+
+        <div class="table-responsive">
+            <table class="display" id="myMemberTable" style="width:100%">
+                <thead>
+                    <tr><th>#</th><th>Member Code</th><th>Name</th><th>Sangh</th><th>Grade</th><th>My role for them</th></tr>
+                </thead>
+                <tbody>
+                <% members.forEach((m, i) => { %>
+                    <tr>
+                        <td><span class="serial-num"><%= i + 1 %></span></td>
+                        <td><span class="emp-code-cell"><%= m.emp_code %></span></td>
+                        <td>
+                            <span class="rp-name-cell">
+                                <span class="emp-name"><%= m.name %></span>
+                                <% if (m.email_id) { %>
+                                    <a href="mailto:<%= m.email_id %>" class="emp-email"><%= m.email_id %></a>
+                                <% } else { %><span class="rp-no-email">no email on record</span><% } %>
+                            </span>
+                        </td>
+                        <td><span class="emp-sangh"><%= m.sangh_name || '—' %></span></td>
+                        <td><span class="emp-grade"><%= m.grade || '—' %></span></td>
+                        <td style="white-space:nowrap">
+                            <% Object.entries(roleLabels).forEach(([role, label]) => { %>
+                                <% if (Number(m['is_my_' + role])) { %>
+                                    <span class="rp-role-chip rp-role-<%= role %>">
+                                        <i class="mdi <%= roleIcons[role] %>"></i><%= label %>
+                                    </span>
+                                <% } %>
+                            <% }) %>
+                        </td>
+                    </tr>
+                <% }) %>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<script>
+$(function () {
+    new DataTable('#myMemberTable', {
+        pageLength: 25, order: [],
+        columnDefs: [{ targets: [0], orderable: false, searchable: false }],
+        layout: { topStart: { buttons: [
+            { extend: 'csv',   text: '<i class="mdi mdi-file-delimited-outline"></i> CSV',   className: 'dt-button' },
+            { extend: 'excel', text: '<i class="mdi mdi-microsoft-excel"></i> Excel',        className: 'dt-button' }
+        ] } },
+        language: {
+            search: '<i class="mdi mdi-magnify"></i>', searchPlaceholder: 'Search my members...',
+            lengthMenu: 'Show _MENU_ entries', info: 'Showing _START_ to _END_ of _TOTAL_ members',
+            zeroRecords: 'No members match your search',
+            paginate: { first: '<i class="mdi mdi-chevron-double-left"></i>', last: '<i class="mdi mdi-chevron-double-right"></i>',
+                        previous: '<i class="mdi mdi-chevron-left"></i>', next: '<i class="mdi mdi-chevron-right"></i>' }
+        }
+    });
+});
+</script>

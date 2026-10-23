@@ -1,0 +1,174 @@
+<%
+  // Full candidate list per role, plus which of them belong to each sangh.
+  const cand = {};
+  for (const [role, list] of Object.entries(candidates)) {
+    cand[role] = list.map(c => ({
+      key: c.emp_code !== '' ? c.emp_code : c.name,
+      label: c.name + (c.emp_code !== '' ? ' (' + c.emp_code + ')' : '')
+        + (c.sangh_code ? ' · ' + c.sangh_code : ''),
+    }));
+  }
+  const labels = {}; for (const [r, c] of Object.entries(roles)) labels[r] = c.label;
+%>
+<div class="rp-modal-backdrop" id="assignModal">
+    <div class="rp-modal" role="dialog" aria-modal="true">
+        <div class="rp-modal-head">
+            <div class="rp-modal-name" id="assignModalName">—</div>
+            <div class="rp-modal-meta" id="assignModalMeta">—</div>
+        </div>
+        <div class="rp-modal-body">
+            <div class="rp-blast" id="assignNotice" style="display:none"></div>
+            <% Object.entries(roles).forEach(([role, cols]) => { %>
+                <div class="rp-assign-field" data-role="<%= role %>">
+                    <label for="assign-<%= role %>"><%= cols.label %></label>
+                    <select id="assign-<%= role %>" data-role="<%= role %>"></select>
+                </div>
+            <% }) %>
+        </div>
+        <div class="rp-modal-foot">
+            <button type="button" class="rp-btn-ghost" id="assignCancel">Cancel</button>
+            <button type="button" class="rp-btn-solid" id="assignSave">Save changes</button>
+        </div>
+    </div>
+</div>
+<div class="rp-toast" id="rpToast"></div>
+
+<script>
+var RP_ASSIGN = (function () {
+    // Member scope writes one row; sangh scope writes every member of the sangh.
+    var URLS = {
+        member: <%- JSON.stringify(typeof memberSaveUrl !== 'undefined' ? memberSaveUrl : '/assign/save') %>,
+        sangh: <%- JSON.stringify(typeof sanghSaveUrl !== 'undefined' ? sanghSaveUrl : '/assign/save-sangh') %>
+    };
+    var KEY_FIELD = { member: 'emp_code', sangh: 'sangh_code' };
+    var CSRF = <%- JSON.stringify(csrfToken) %>;
+    var ROLES = <%- JSON.stringify(Object.keys(roles)) %>;
+    var LABELS = <%- JSON.stringify(labels) %>;
+    var CANDIDATES = <%- JSON.stringify(cand) %>;
+    var SANGH_LEADERS = <%- JSON.stringify(sanghLeaders) %>;
+
+    var $modal = $('#assignModal'), current = null, onSaved = null;
+
+    function toast(message, isError) {
+        var $t = $('#rpToast');
+        $t.text(message).toggleClass('error', !!isError).addClass('show');
+        setTimeout(function () { $t.removeClass('show'); }, 2600);
+    }
+
+    /**
+     * Rebuild one role's select.
+     *
+     * Assigning to a whole sangh offers that sangh's own active members and nobody else —
+     * the choice is for those people. Assigning to one member offers every active member,
+     * with their own sangh's people grouped first for convenience.
+     */
+    function buildOptions(role, sanghCode, selected, sanghOnly) {
+        var $sel = $('#assign-' + role).empty();
+        $sel.append($('<option>', { value: '', text: '— Not assigned —' }));
+
+        var all = CANDIDATES[role] || [];
+        var mine = ((SANGH_LEADERS[sanghCode] || {})[role]) || [];
+        var opt = function (c) { return $('<option>', { value: c.key, text: c.label }); };
+
+        if (sanghOnly) {
+            var only = all.filter(function (c) { return mine.indexOf(c.key) !== -1; });
+            if (only.length) {
+                only.forEach(function (c) { $sel.append(opt(c)); });
+            } else {
+                $sel.append($('<option>', { value: '', disabled: true, text: 'No active members in this sangh' }));
+            }
+        } else if (sanghCode && mine.length) {
+            var inSangh = all.filter(function (c) { return mine.indexOf(c.key) !== -1; });
+            var others = all.filter(function (c) { return mine.indexOf(c.key) === -1; });
+            var $g1 = $('<optgroup>', { label: 'Members of this sangh' });
+            inSangh.forEach(function (c) { $g1.append(opt(c)); });
+            $sel.append($g1);
+            if (others.length) {
+                var $g2 = $('<optgroup>', { label: 'All other members' });
+                others.forEach(function (c) { $g2.append(opt(c)); });
+                $sel.append($g2);
+            }
+        } else {
+            all.forEach(function (c) { $sel.append(opt(c)); });
+        }
+
+        // Someone whose sangh is out of scope (e.g. SS/SS1) can still lead another sangh,
+        // so they won't be in the list above. Keep them visible and selected rather than
+        // making the field look empty.
+        if (selected && !$sel.find('option[value="' + String(selected).replace(/"/g, '\\"') + '"]').length) {
+            $sel.append($('<optgroup>', { label: 'Currently set' })
+                .append($('<option>', { value: selected, text: selected })));
+        }
+        $sel.val(selected || '');
+    }
+
+    function open(opts) {
+        current = {
+            scope: opts.scope || 'member',
+            key: opts.key,
+            values: opts.values || {},
+            sanghCode: opts.sanghCode || (opts.scope === 'sangh' ? (opts.key || '') : ''),
+        };
+        $('#assignModalName').text(opts.name || current.key);
+        $('#assignModalMeta').text(opts.meta || '');
+        var $notice = $('#assignNotice');
+        if (opts.notice) { $notice.text(opts.notice).show(); } else { $notice.hide().text(''); }
+        var sanghOnly = current.scope === 'sangh';
+        ROLES.forEach(function (role) {
+            buildOptions(role, current.sanghCode, current.values[role], sanghOnly);
+        });
+        $modal.addClass('open');
+    }
+    function close() { $modal.removeClass('open'); current = null; }
+
+    function save() {
+        if (!current) return;
+        var changes = ROLES.map(function (role) {
+            return { role: role, value: $('#assign-' + role).val() || '' };
+        }).filter(function (c) { return c.value !== (current.values[c.role] || ''); });
+
+        if (!changes.length) { close(); return; }
+
+        var $save = $('#assignSave').prop('disabled', true).text('Saving…');
+        var scope = current.scope, key = current.key;
+
+        var requests = changes.map(function (change) {
+            var payload = { role: change.role, person_code: change.value, csrf_test_name: CSRF };
+            payload[KEY_FIELD[scope]] = key;
+            return $.post(URLS[scope], payload);
+        });
+
+        $.when.apply($, requests).done(function () {
+            var results = requests.length === 1 ? [arguments[0]]
+                : Array.prototype.slice.call(arguments).map(function (a) { return a[0]; });
+            var affected = 0;
+            results.forEach(function (res) {
+                if (res && res.ok && onSaved) {
+                    var personKey = res.person_code || res.person_name || '';
+                    onSaved(res.sangh_code || res.emp_code, res.role, res.person_name, personKey);
+                    affected = Math.max(affected, res.affected || 0);
+                }
+            });
+            toast(scope === 'sangh'
+                ? results.length + ' role' + (results.length > 1 ? 's' : '') + ' applied to ' + affected + ' members.'
+                : results.length + ' change' + (results.length > 1 ? 's' : '') + ' saved.');
+            close();
+        }).fail(function (xhr) {
+            toast((xhr.responseJSON && xhr.responseJSON.message) || 'Could not save. Please try again.', true);
+        }).always(function () {
+            $save.prop('disabled', false).text('Save changes');
+        });
+    }
+
+    $(function () {
+        $('#assignCancel').on('click', close);
+        $modal.on('click', function (e) { if (e.target === this) close(); });
+        $(document).on('keydown', function (e) { if (e.key === 'Escape') close(); });
+        $('#assignSave').on('click', save);
+    });
+
+    return { open: open, toast: toast, candidates: CANDIDATES, sanghLeaders: SANGH_LEADERS,
+             labels: LABELS, csrf: function () { return { csrf_test_name: CSRF }; },
+             onSaved: function (fn) { onSaved = fn; } };
+})();
+</script>

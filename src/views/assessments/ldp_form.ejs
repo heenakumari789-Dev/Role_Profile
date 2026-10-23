@@ -1,0 +1,274 @@
+<%
+  const weightSum = skills.reduce((s, k) => s + Number(k.tech_weight || 0), 0);
+  const plansNoted = skills.filter((k) => String(k.training_gap || '').trim() !== '').length;
+  const trim2 = (v) => String(Math.round(Number(v) * 100) / 100);
+  const fmtDate = (v) => fmtDateTime(v) || '—';
+  const selfSubmitted = !!(existing && existing.self_submitted_at);
+  const selfLocked = !canSelf;      // read-only once submitted, or if this isn't the member
+  const finalLocked = !canFinal;    // read-only until self is in, or if this isn't the leader/admin
+  let lastAttr = null;
+%>
+<a class="rp-back-link" href="/role-profiles/<%= profile.id %>"><i class="mdi mdi-arrow-left"></i> Back to role profile</a>
+
+<div class="rp-card">
+    <div class="rp-card-header">
+        <div class="rp-card-header-left">
+            <div class="rp-card-header-icon"><i class="mdi mdi-clipboard-check-outline"></i></div>
+            <div>
+                <div class="rp-card-title">LDP Role Profile Assessment</div>
+                <div class="rp-card-subtitle"><%= profile.designation_name %> · <%= profile.sangh_name %></div>
+            </div>
+        </div>
+    </div>
+    <div class="rp-card-body">
+
+        <div class="rp-assess-head">
+            <div>
+                <div class="who"><%= member.name || member.emp_code %></div>
+                <div class="sub">
+                    <%= member.emp_code %><%= member.designation ? ' · ' + member.designation : '' %>
+                    · <strong><%= chosen %></strong>
+                    · leader: <%= leader ? leader.name + ' (' + leader.code + ')' : 'not set' %>
+                    <% if (existing && existing.final_submitted_at) { %>
+                        · last final-rated by <%= personName(existing.assessed_by, existing.assessed_by_name) %> on <%= fmtDate(existing.updated_at || existing.created_at) %>
+                    <% } %>
+                </div>
+            </div>
+            <div class="rp-head-right">
+                <div class="rp-score-box">
+                    <div class="n"><span id="selfPct">0</span>%</div>
+                    <div class="l">Self: <span id="selfTotal">0</span> of <span id="selfMax">0</span></div>
+                </div>
+                <div class="rp-score-box">
+                    <div class="n"><span id="grandPct">0</span>%</div>
+                    <div class="l">Final: <span id="grandTotal">0</span> of <span id="grandMax">0</span></div>
+                </div>
+            </div>
+        </div>
+
+        <form method="get" class="rp-year-bar">
+            <label for="fy"><i class="mdi mdi-calendar-range-outline"></i> Financial year</label>
+            <select name="fy" id="fy" onchange="this.form.submit()">
+                <% years.forEach(y => { %>
+                    <option value="<%= y.year %>" <%= y.year === chosen ? 'selected' : '' %>><%= y.year %><%= y.is_current ? ' — current' : '' %></option>
+                <% }) %>
+            </select>
+            <% if (!selfSubmitted) { %>
+                <span class="rp-year-note"><i class="mdi mdi-information-outline"></i> Not yet self-rated for <%= chosen %></span>
+            <% } else if (!existing.final_submitted_at) { %>
+                <span class="rp-year-note rp-locked"><i class="mdi mdi-clock-outline"></i> Self-rated — waiting on the leader's final rating.</span>
+            <% } else { %>
+                <span class="rp-year-note rp-locked"><i class="mdi mdi-check-circle-outline"></i> Final rating recorded for <%= chosen %>.</span>
+            <% } %>
+            <% if (!yearOpen) { %>
+                <span class="rp-year-note rp-closed"><i class="mdi mdi-lock-outline"></i> <%= chosen %> is closed — only <%= current %> and <%= previous %> are open.</span>
+            <% } %>
+            <% if (historyYears.filter(h => h.financial_year !== chosen).length) { %>
+                <span class="rp-year-note">Earlier:
+                    <% historyYears.filter(h => h.financial_year !== chosen).forEach(h => { %>
+                        <a class="rp-year-chip" href="?fy=<%= encodeURIComponent(h.financial_year) %>"><%= h.financial_year %><% if (h.percentage !== null) { %> · <%= trim2(h.percentage) %>%<% } %></a>
+                    <% }) %>
+                </span>
+            <% } %>
+        </form>
+
+        <div class="rp-legend">
+            <span>Rate each attribute from <b>1</b> to <b>4</b>.</span>
+            <span>Each stage's score is <b>weight &times; that stage's rating</b>.</span>
+            <span>All weights total <b><%= trim2(weightSum) %></b>.</span>
+            <span>The member self-rates and submits first; only then can the leader give the final rating.</span>
+            <span>Note a <b>development plan</b> against any attribute that needs it — required when the leader's rating is <b>2</b> or below, optional otherwise.</span>
+        </div>
+
+        <form method="post" action="/role-profiles/<%= profile.id %>/assess/<%= encodeURIComponent(member.emp_code) %>" id="ldpAssessForm">
+            <input type="hidden" name="csrf_test_name" value="<%= csrfToken %>">
+            <input type="hidden" name="financial_year" value="<%= chosen %>">
+            <input type="hidden" name="stage" id="stageField" value="<%= canSelf ? 'self' : 'final' %>">
+            <div class="table-responsive">
+                <table class="rp-assess-table">
+                    <thead>
+                        <tr>
+                            <th>Attribute</th><th class="num">Weight</th><th>Assessment Mechanism</th>
+                            <th class="num">Self Marking</th><th class="num">Final Score</th>
+                            <th class="num">Leader Scoring</th><th class="num">Final Scoring</th>
+                            <th>Development Plan</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                    <% skills.forEach(s => { %>
+                        <% if (lastAttr !== s.attribute_no) { lastAttr = s.attribute_no; %>
+                            <tr class="rp-attr-row">
+                                <td colspan="8"><%= s.attribute_no %>. <%= s.attribute %>
+                                    <span class="wt">skill weight <%= trim2(s.attribute_weight) %></span></td>
+                            </tr>
+                        <% } %>
+                        <% const selfRating = s.self_rating === null ? '' : Number(s.self_rating); %>
+                        <% const finalRating = s.rating === null ? '' : Number(s.rating); %>
+                        <tr>
+                            <td><span class="rp-skill-text"><%= s.tech_skill %></span></td>
+                            <td class="num"><span class="rp-wt js-weight" data-weight="<%= Number(s.tech_weight) %>"><%= trim2(s.tech_weight) %></span></td>
+                            <td><span class="rp-skill-text"><%= s.assessment || '—' %></span></td>
+                            <td class="num">
+                                <select class="rp-rating js-self-rating<%= selfRating === '' ? ' unrated' : '' %>" name="rating[d<%= s.id %>]" <%= selfLocked ? 'disabled' : '' %>>
+                                    <option value="">—</option>
+                                    <% scale.forEach(v => { %>
+                                        <option value="<%= v %>" <%= selfRating !== '' && Math.abs(selfRating - v) < 0.001 ? 'selected' : '' %>><%= v %></option>
+                                    <% }) %>
+                                </select>
+                            </td>
+                            <td class="num"><span class="rp-line-score zero js-self-score">0</span></td>
+                            <td class="num">
+                                <select class="rp-rating js-final-rating<%= finalRating === '' ? ' unrated' : '' %>" name="rating[d<%= s.id %>]" <%= finalLocked ? 'disabled' : '' %>>
+                                    <option value="">—</option>
+                                    <% scale.forEach(v => { %>
+                                        <option value="<%= v %>" <%= finalRating !== '' && Math.abs(finalRating - v) < 0.001 ? 'selected' : '' %>><%= v %></option>
+                                    <% }) %>
+                                </select>
+                            </td>
+                            <td class="num"><span class="rp-line-score zero js-final-score">0</span></td>
+                            <td>
+                                <% if (finalLocked) { %>
+                                    <% const g = String(s.training_gap || '').trim(); %>
+                                    <span class="rp-gap-read<%= g === '' ? ' none' : '' %>"><%= g === '' ? '—' : g %></span>
+                                <% } else { %>
+                                    <input type="text" class="rp-gap js-plan" name="gap[d<%= s.id %>]" value="<%= s.training_gap || '' %>" placeholder="Development plan, if any">
+                                <% } %>
+                            </td>
+                        </tr>
+                    <% }) %>
+                        <tr class="rp-total-row">
+                            <td>Total</td>
+                            <td class="num"><span id="weightSum">0</span></td>
+                            <td></td>
+                            <td class="num"></td>
+                            <td class="num"><span id="selfTotalCell">0</span></td>
+                            <td class="num"></td>
+                            <td class="num"><span id="finalTotalCell">0</span></td>
+                            <td><span id="planCount"><%= plansNoted %></span> plan(s) noted</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="rp-save-bar">
+                <% if (canSelf) { %>
+                    <span style="font-size:0.78rem;color:var(--text-muted)">
+                        Rate yourself, then submit — this locks and hands off to your leader.
+                    </span>
+                    <a class="rp-btn-cancel" href="/role-profiles/<%= profile.id %>">Cancel</a>
+                    <button type="submit" class="rp-btn-save" id="submitSelf" onclick="document.getElementById('stageField').value='self'">
+                        <i class="mdi mdi-content-save-outline"></i> Submit self-rating
+                    </button>
+                <% } else if (canFinal) { %>
+                    <span style="font-size:0.78rem;color:var(--text-muted)">
+                        Give the final rating — you may come back and change it while <%= chosen %> is open.
+                    </span>
+                    <a class="rp-btn-cancel" href="/role-profiles/<%= profile.id %>">Cancel</a>
+                    <button type="submit" class="rp-btn-save" id="submitFinal" onclick="document.getElementById('stageField').value='final'">
+                        <i class="mdi mdi-content-save-outline"></i> Save final rating
+                    </button>
+                <% } else { %>
+                    <span style="font-size:0.78rem;color:var(--text-muted)">
+                        <% if (!yearOpen) { %>
+                            <i class="mdi mdi-lock-outline"></i> <%= chosen %> is closed. Only <%= current %> and <%= previous %> can be entered or corrected.
+                        <% } else if (isSelf && selfSubmitted) { %>
+                            <i class="mdi mdi-lock-check-outline"></i> Your self-rating for <%= chosen %> is submitted and final.
+                        <% } else if (isLeader && !selfSubmitted) { %>
+                            <i class="mdi mdi-lock-outline"></i> Waiting on <%= member.name || member.emp_code %>'s self-rating before you can give a final rating.
+                        <% } else { %>
+                            <i class="mdi mdi-lock-outline"></i> You can view this assessment, but only <%= member.name || member.emp_code %> can self-rate,
+                            and only their leader<%= leader ? ' (' + leader.name + ')' : '' %> can give the final rating.
+                        <% } %>
+                    </span>
+                <% } %>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+$(function () {
+    function fmt(n) { var r = Math.round(n * 100) / 100; return (r % 1 === 0) ? r.toString() : r.toFixed(2).replace(/0$/, ''); }
+
+    function recalc() {
+        var weightSum = 0, selfTotal = 0, finalTotal = 0;
+
+        $('.js-weight').each(function () {
+            var $row = $(this).closest('tr');
+            var weight = parseFloat($(this).data('weight')) || 0;
+            weightSum += weight;
+
+            var $selfSel = $row.find('.js-self-rating');
+            var selfRating = parseFloat($selfSel.val());
+            var $selfScore = $row.find('.js-self-score');
+            $selfSel.toggleClass('unrated', isNaN(selfRating));
+            if (!isNaN(selfRating)) { var s = weight * selfRating; $selfScore.text(fmt(s)).removeClass('zero'); selfTotal += s; }
+            else { $selfScore.text('0').addClass('zero'); }
+
+            var $finalSel = $row.find('.js-final-rating');
+            var finalRating = parseFloat($finalSel.val());
+            var $finalScore = $row.find('.js-final-score');
+            $finalSel.toggleClass('unrated', isNaN(finalRating));
+            if (!isNaN(finalRating)) { var f = weight * finalRating; $finalScore.text(fmt(f)).removeClass('zero'); finalTotal += f; }
+            else { $finalScore.text('0').addClass('zero'); }
+        });
+
+        var max = weightSum * 4;
+        var selfPct = max > 0 ? (selfTotal / max * 100) : 0;
+        var finalPct = max > 0 ? (finalTotal / max * 100) : 0;
+
+        $('#weightSum').text(fmt(weightSum));
+        $('#selfTotal, #selfTotalCell').text(fmt(selfTotal));
+        $('#selfMax').text(fmt(max));
+        $('#selfPct').text(max > 0 ? selfPct.toFixed(2).replace(/\.00$/, '') : '0');
+        $('#grandTotal, #finalTotalCell').text(fmt(finalTotal));
+        $('#grandMax').text(fmt(max));
+        $('#grandPct').text(max > 0 ? finalPct.toFixed(2).replace(/\.00$/, '') : '0');
+    }
+
+    function recountPlans() {
+        var $plans = $('.js-plan');
+        if (!$plans.length) return;
+        var n = 0;
+        $plans.each(function () {
+            var filled = $.trim(this.value) !== '';
+            $(this).toggleClass('filled', filled);
+            if (filled) n++;
+        });
+        $('#planCount').text(n);
+    }
+
+    // A final (leader) rating of 2 or below needs a development plan noted — self-rating
+    // is not held to this, only the final one.
+    function markRequiredPlans() {
+        $('.js-final-rating').each(function () {
+            var $row = $(this).closest('tr');
+            var rating = parseFloat($(this).val());
+            var low = !isNaN(rating) && rating <= 2;
+            var $plan = $row.find('.js-plan');
+            var missing = low && $.trim($plan.val()) === '';
+            $plan.toggleClass('rp-gap-missing', missing).css('border-color', missing ? 'var(--danger, #c0392b)' : '');
+        });
+    }
+
+    $('.js-self-rating, .js-final-rating').on('change', function () { recalc(); markRequiredPlans(); });
+    $('.js-plan').on('input', function () { recountPlans(); markRequiredPlans(); });
+    recalc(); recountPlans(); markRequiredPlans();
+
+    $('#ldpAssessForm').on('submit', function (e) {
+        if ($('#stageField').val() !== 'final') return;
+        var missing = [];
+        $('.js-final-rating').each(function () {
+            var $row = $(this).closest('tr');
+            var rating = parseFloat($(this).val());
+            if (!isNaN(rating) && rating <= 2 && $.trim($row.find('.js-plan').val()) === '') {
+                missing.push($.trim($row.find('.rp-skill-text').first().text()));
+            }
+        });
+        if (missing.length) {
+            e.preventDefault();
+            window.alert('A rating of 2 or below needs a development plan noted:\n\n' + missing.join('\n'));
+        }
+    });
+});
+</script>

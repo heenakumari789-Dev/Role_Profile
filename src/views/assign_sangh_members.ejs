@@ -1,0 +1,246 @@
+<%
+  const icons = { rp_approver: 'mdi-account-heart-outline', rp_creator: 'mdi-shield-account-outline', pracharak: 'mdi-bullhorn-outline' };
+  const person = (name, variant) => String(name || '').trim() === ''
+    ? '<span class="rp-none">—</span>'
+    : '<span class="rp-person rp-person-' + variant + '"><i class="mdi ' + icons[variant] + '"></i>' + h(name) + '</span>';
+%>
+<a class="rp-back-link" href="/assign/sangh"><i class="mdi mdi-arrow-left"></i> All sanghs</a>
+
+<div class="rp-card">
+    <div class="rp-card-header">
+        <div class="rp-card-header-left">
+            <div class="rp-card-header-icon"><i class="mdi mdi-account-multiple-check-outline"></i></div>
+            <div>
+                <div class="rp-card-title"><%= sanghName %></div>
+                <div class="rp-card-subtitle"><%= sanghCode %> · <%= members.length %> active members — tick members, then apply a role to just those</div>
+            </div>
+        </div>
+    </div>
+    <div class="rp-card-body">
+
+        <div class="rp-bulk">
+            <div class="rp-bulk-field">
+                <label for="bulkRole">Role</label>
+                <select id="bulkRole">
+                    <% Object.entries(roles).forEach(([role, cols]) => { %>
+                        <option value="<%= role %>"><%= cols.label %></option>
+                    <% }) %>
+                </select>
+            </div>
+            <div class="rp-bulk-field">
+                <label for="bulkPerson">Assign</label>
+                <select id="bulkPerson"></select>
+            </div>
+            <button type="button" class="rp-bulk-apply" id="bulkApply" disabled>
+                <i class="mdi mdi-check-all"></i> Apply to selected
+            </button>
+            <span class="rp-bulk-count" id="bulkCount">0 selected</span>
+        </div>
+
+        <div class="table-responsive">
+            <table class="display" id="sanghMemberTable" style="width:100%">
+                <thead>
+                    <tr>
+                        <th><input type="checkbox" class="rp-check" id="checkAll" title="Select all"></th>
+                        <th>Member Code</th><th>Name</th><th>Grade</th><th>RP Approver</th><th>RP Creator</th><th>Pracharak</th><th>Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                <% members.forEach(m => { %>
+                    <%
+                      const empCode = String(m.emp_code || '');
+                      const values = {};
+                      for (const [role, cols] of Object.entries(roles)) {
+                          const code = String(m[cols.code] || '').trim();
+                          const name = String(m[cols.name] || '').trim();
+                          values[role] = code !== '' ? code : name;
+                      }
+                    %>
+                    <tr data-emp-code="<%= empCode %>"
+                        data-name="<%= m.name || '' %>"
+                        data-sangh-code="<%= sanghCode %>"
+                        data-values="<%= JSON.stringify(values) %>">
+                        <td><input type="checkbox" class="rp-check js-row-check"></td>
+                        <td><span class="emp-code-cell"><%= empCode %></span></td>
+                        <td>
+                            <span class="rp-name-cell">
+                                <span class="emp-name"><%= m.name || '' %></span>
+                                <% if (m.email_id) { %>
+                                    <a href="mailto:<%= m.email_id %>" class="emp-email"><%= m.email_id %></a>
+                                <% } else { %>
+                                    <span class="rp-no-email">no email on record</span>
+                                <% } %>
+                            </span>
+                        </td>
+                        <td><span class="emp-grade"><%= m.grade || '—' %></span></td>
+                        <% Object.entries(roles).forEach(([role, cols]) => { %>
+                            <td class="rp-cell-<%= role %>"><%- person(m[cols.name], role) %></td>
+                        <% }) %>
+                        <td><button type="button" class="rp-edit-btn js-assign-edit"><i class="mdi mdi-pencil-outline"></i> Edit</button></td>
+                    </tr>
+                <% }) %>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<%- await include('partials/assign_editor') %>
+
+<script>
+$(document).ready(function () {
+    var SANGH_CODE = <%- JSON.stringify(sanghCode) %>;
+    var SANGH_NAME = <%- JSON.stringify(sanghName) %>;
+    var BULK_URL   = '/assign/save-bulk';
+    var ICONS      = <%- JSON.stringify(icons) %>;
+
+    var table = new DataTable('#sanghMemberTable', {
+        pageLength: 50,
+        order: [],
+        columnDefs: [{ targets: [0, 7], orderable: false, searchable: false }],
+        language: {
+            search: '<i class="mdi mdi-magnify"></i>',
+            searchPlaceholder: 'Search members...',
+            lengthMenu: 'Show _MENU_ entries',
+            info: 'Showing _START_ to _END_ of _TOTAL_ members',
+            zeroRecords: 'No members match your search',
+            paginate: { first: '<i class="mdi mdi-chevron-double-left"></i>', last: '<i class="mdi mdi-chevron-double-right"></i>',
+                        previous: '<i class="mdi mdi-chevron-left"></i>', next: '<i class="mdi mdi-chevron-right"></i>' }
+        }
+    });
+
+    // ---- bulk person dropdown, grouped by this sangh ----
+    function fillBulkPeople() {
+        var role = $('#bulkRole').val();
+        var $sel = $('#bulkPerson').empty();
+        $sel.append($('<option>', { value: '', text: '— Not assigned (clear) —' }));
+
+        var all  = RP_ASSIGN.candidates[role] || [];
+        var mine = ((RP_ASSIGN.sanghLeaders[SANGH_CODE] || {})[role]) || [];
+        var label = RP_ASSIGN.labels[role];
+
+        var inSangh = all.filter(function (c) { return mine.indexOf(c.key) !== -1; });
+        var others  = all.filter(function (c) { return mine.indexOf(c.key) === -1; });
+
+        function add($parent, list) {
+            list.forEach(function (c) { $parent.append($('<option>', { value: c.key, text: c.label })); });
+        }
+
+        if (inSangh.length) {
+            var $g1 = $('<optgroup>', { label: 'Members of this sangh' });
+            add($g1, inSangh);
+            $sel.append($g1);
+        }
+        if (others.length) {
+            var $g2 = $('<optgroup>', { label: inSangh.length ? 'All other members' : 'All members' });
+            add($g2, others);
+            $sel.append($g2);
+        }
+    }
+
+    $('#bulkRole').on('change', fillBulkPeople);
+    fillBulkPeople();
+
+    // ---- selection ----
+    function selectedRows() {
+        return $('#sanghMemberTable tbody .js-row-check:checked').closest('tr');
+    }
+
+    function refreshSelection() {
+        var $rows = selectedRows();
+        var n = $rows.length;
+        $('#bulkCount').text(n + ' selected');
+        $('#bulkApply').prop('disabled', n === 0);
+        $('#sanghMemberTable tbody tr').removeClass('rp-selected');
+        $rows.addClass('rp-selected');
+    }
+
+    $('#sanghMemberTable tbody').on('change', '.js-row-check', refreshSelection);
+
+    $('#checkAll').on('change', function () {
+        // Only the rows currently visible on this page.
+        $('#sanghMemberTable tbody .js-row-check').prop('checked', this.checked);
+        refreshSelection();
+    });
+
+    table.on('draw', function () {
+        $('#checkAll').prop('checked', false);
+        refreshSelection();
+    });
+
+    // ---- apply to selected ----
+    $('#bulkApply').on('click', function () {
+        var $rows = selectedRows();
+        if (!$rows.length) { return; }
+
+        var role   = $('#bulkRole').val();
+        var person = $('#bulkPerson').val() || '';
+        var label  = $('#bulkPerson option:selected').text();
+        var codes  = $rows.map(function () { return $(this).data('emp-code'); }).get();
+
+        var what = person === ''
+            ? 'Clear ' + RP_ASSIGN.labels[role] + ' for ' + codes.length + ' member(s)?'
+            : 'Set ' + RP_ASSIGN.labels[role] + ' to ' + label + ' for ' + codes.length + ' member(s)?';
+        if (!window.confirm(what)) { return; }
+
+        var $btn = $(this).prop('disabled', true).text('Applying…');
+        var payload = $.extend({ role: role, person_code: person, 'emp_codes[]': codes }, RP_ASSIGN.csrf());
+
+        $.post(BULK_URL, payload).done(function (res) {
+            if (!res || !res.ok) {
+                RP_ASSIGN.toast((res && res.message) || 'Could not apply.', true);
+                return;
+            }
+            var html = res.person_name
+                ? '<span class="rp-person rp-person-' + role + '"><i class="mdi ' + ICONS[role] + '"></i>' + $('<div>').text(res.person_name).html() + '</span>'
+                : '<span class="rp-none">—</span>';
+            var personKey = res.person_code || res.person_name || '';
+
+            $rows.each(function () {
+                var $r = $(this);
+                $r.find('.rp-cell-' + role).html(html);
+                var values = $r.data('values') || {};
+                values[role] = personKey;
+                $r.data('values', values);
+                $r.find('.js-row-check').prop('checked', false);
+            });
+            $('#checkAll').prop('checked', false);
+            refreshSelection();
+            RP_ASSIGN.toast(res.message);
+        }).fail(function (xhr) {
+            RP_ASSIGN.toast((xhr.responseJSON && xhr.responseJSON.message) || 'Could not apply.', true);
+        }).always(function () {
+            $btn.prop('disabled', false).html('<i class="mdi mdi-check-all"></i> Apply to selected');
+        });
+    });
+
+    // ---- single-member edit ----
+    $('#sanghMemberTable tbody').on('click', '.js-assign-edit', function () {
+        var $row = $(this).closest('tr');
+        RP_ASSIGN.open({
+            scope: 'member',
+            key: $row.data('emp-code'),
+            sanghCode: SANGH_CODE,
+            name: $row.data('name') || $row.data('emp-code'),
+            meta: $row.data('emp-code') + ' · ' + SANGH_NAME,
+            values: $row.data('values') || {}
+        });
+    });
+
+    RP_ASSIGN.onSaved(function (key, role, personName, personKey) {
+        var $row = $('#sanghMemberTable tbody tr').filter(function () {
+            return String($(this).data('emp-code')) === String(key);
+        });
+        if (!$row.length) { return; }
+
+        var html = personName
+            ? '<span class="rp-person rp-person-' + role + '"><i class="mdi ' + ICONS[role] + '"></i>' + $('<div>').text(personName).html() + '</span>'
+            : '<span class="rp-none">—</span>';
+        $row.find('.rp-cell-' + role).html(html);
+
+        var values = $row.data('values') || {};
+        values[role] = personKey;
+        $row.data('values', values);
+    });
+});
+</script>

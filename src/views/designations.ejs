@@ -1,0 +1,126 @@
+<div class="rp-card">
+    <div class="rp-card-header">
+        <div class="rp-card-header-left">
+            <div class="rp-card-header-icon"><i class="mdi mdi-badge-account-outline"></i></div>
+            <div>
+                <div class="rp-card-title">Designations</div>
+                <div class="rp-card-subtitle">Add a role nobody has held yet — it appears in the designation list when creating a role profile</div>
+            </div>
+        </div>
+    </div>
+    <div class="rp-card-body">
+        <div class="rp-form-section">
+            <h3><i class="mdi mdi-plus-circle-outline"></i> New designation</h3>
+            <div class="rp-form-hint">
+                A designation belongs to one sangh, and so to its programme: Sanghrakshak Sangh and Seva Sangh
+                (SS/SS1) are <strong>LDP</strong>, every other sangh is <strong>PSP</strong>. If the sangh already has it — in any capitalisation —
+                the existing one is kept and nothing is added.
+            </div>
+            <form method="post" action="/designations">
+                <input type="hidden" name="csrf_test_name" value="<%= csrfToken %>">
+                <div class="rp-grid-2">
+                    <div class="rp-field">
+                        <label for="sangh_code">Sangh</label>
+                        <select class="rp-select" name="sangh_code" id="sangh_code" required>
+                            <% if (sanghs.length > 1) { %><option value="">— Choose a sangh —</option><% } %>
+                            <% [['psp', 'PSP sanghs'], ['ldp', 'LDP — Sanghrakshak & Seva Sangh']].forEach(([prog, groupLabel]) => {
+                                 const group = sanghs.filter(s => s.program === prog);
+                                 if (!group.length) return; %>
+                                <optgroup label="<%= groupLabel %>">
+                                <% group.forEach(s => { %>
+                                    <option value="<%= s.sangh_code %>" <%= chosen === s.sangh_code ? 'selected' : '' %>><%= s.sangh_name %></option>
+                                <% }) %>
+                                </optgroup>
+                            <% }) %>
+                        </select>
+                    </div>
+                    <div class="rp-field">
+                        <label for="designation_name">Designation name</label>
+                        <input type="text" class="rp-input" name="designation_name" id="designation_name"
+                               maxlength="100" minlength="2" required placeholder="e.g. SAP Security Head">
+                    </div>
+                </div>
+                <div class="rp-form-foot">
+                    <button type="submit" class="rp-btn-submit"><i class="mdi mdi-plus"></i> Add designation</button>
+                </div>
+            </form>
+        </div>
+
+        <div class="rp-form-section">
+            <h3><i class="mdi mdi-format-list-bulleted"></i> Designations<%= chosen ? ` in ${sanghNames[chosen] || chosen}` : '' %></h3>
+            <% if (sanghs.length > 1) { %>
+                <div class="rp-form-hint">
+                    Showing:
+                    <select class="rp-select" id="sanghFilter" style="display:inline-block;width:auto;margin-left:6px">
+                        <option value="">All sanghs</option>
+                        <% [['psp', 'PSP sanghs'], ['ldp', 'LDP — Sanghrakshak & Seva Sangh']].forEach(([prog, groupLabel]) => {
+                             const group = sanghs.filter(s => s.program === prog);
+                             if (!group.length) return; %>
+                            <optgroup label="<%= groupLabel %>">
+                            <% group.forEach(s => { %>
+                                <option value="<%= s.sangh_code %>" <%= chosen === s.sangh_code ? 'selected' : '' %>><%= s.sangh_name %></option>
+                            <% }) %>
+                            </optgroup>
+                        <% }) %>
+                    </select>
+                </div>
+            <% } %>
+            <% if (!rows.length) { %>
+                <div class="rp-empty-inline">No designations yet.</div>
+            <% } else { %>
+                <div class="table-responsive">
+                    <table class="display" id="desigTable" style="width:100%">
+                        <thead>
+                            <tr><th>Designation</th><th>Sangh</th><th>Programme</th><th>Active members</th><th>Origin</th><th>Role profile</th></tr>
+                        </thead>
+                        <tbody>
+                        <% rows.forEach(r => { %>
+                            <tr>
+                                <td><span class="emp-name"><%= r.designation %></span></td>
+                                <td><span class="emp-sangh"><%= sanghNames[r.sangh_code] || r.sangh_code %></span></td>
+                                <td data-order="<%= r.program %>"><span class="rp-prog rp-prog-<%= r.program %>" style="margin-left:0"><%= programLabels[r.program] %></span></td>
+                                <td data-order="<%= r.active %>"><span class="emp-sangh"><%= r.active || '—' %></span></td>
+                                <td>
+                                    <% if (r.created) { %>
+                                        <span class="emp-sangh">Added by <%= personName(r.created.code, r.created.by) %></span>
+                                        <div class="rp-sub"><%= fmtDateTime(r.created.at) %></div>
+                                    <% } else if (r.active) { %>
+                                        <span class="emp-sangh">Held by members</span>
+                                    <% } else { %>
+                                        <span class="emp-sangh">Former members only</span>
+                                    <% } %>
+                                </td>
+                                <td>
+                                    <% if (r.profile) { %>
+                                        <a class="rp-status rp-status-<%= r.profile.status %>" href="/role-profiles/<%= r.profile.id %>"><%= statusText({ status: r.profile.status, program: r.program }) %></a>
+                                    <% } else { %>
+                                        <span class="rp-sub">None yet</span>
+                                    <% } %>
+                                </td>
+                            </tr>
+                        <% }) %>
+                        </tbody>
+                    </table>
+                </div>
+            <% } %>
+        </div>
+    </div>
+</div>
+
+<script>
+$(function () {
+    $('#sanghFilter').on('change', function () {
+        window.location.href = '/designations' + (this.value ? '?sangh=' + encodeURIComponent(this.value) : '');
+    });
+    if ($('#desigTable').length) {
+        new DataTable('#desigTable', {
+            pageLength: 25, order: [[2, 'desc'], [1, 'asc'], [0, 'asc']],
+            language: {
+                search: '<i class="mdi mdi-magnify"></i>', searchPlaceholder: 'Search designations...',
+                lengthMenu: 'Show _MENU_ entries', info: 'Showing _START_ to _END_ of _TOTAL_ designations',
+                zeroRecords: 'No designations match your search',
+            },
+        });
+    }
+});
+</script>

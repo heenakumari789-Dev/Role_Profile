@@ -1,0 +1,497 @@
+<%
+  const icons = { rp_approver: 'mdi-account-heart-outline', rp_creator: 'mdi-shield-account-outline', pracharak: 'mdi-bullhorn-outline' };
+  const status = profile.status;
+  // The PSP Approver gives final approval for PSP profiles, the LDP Admin for LDP ones.
+  const finalBy = finalApproverLabel(profile);
+  const fmt = (v) => fmtDateTime(v) || '—';
+  const trim2 = (v) => String(Math.round(Number(v) * 100) / 100);
+%>
+<a class="rp-back-link" href="/role-profiles"><i class="mdi mdi-arrow-left"></i> All role profiles</a>
+
+<div class="rp-card">
+    <div class="rp-card-header">
+        <div class="rp-card-header-left">
+            <div class="rp-card-header-icon"><i class="mdi mdi-file-document-outline"></i></div>
+            <div>
+                <div class="rp-card-title"><%= profile.designation_name %></div>
+                <div class="rp-card-subtitle">
+                    <% if (String(profile.sangh_name || '').trim()) { %><strong><%= profile.sangh_name %></strong><span class="rp-prog rp-prog-<%= profile.program === 'ldp' ? 'ldp' : 'psp' %>"><%= profile.program === 'ldp' ? 'LDP' : 'PSP' %></span> · <% } %>
+                    by <%= personName(profile.created_by, profile.created_by_name) %> · <%= fmt(profile.created_at) %>
+                </div>
+            </div>
+        </div>
+        <div class="rp-header-actions">
+            <% if (canClone) { %>
+                <a class="rp-edit-btn" href="/role-profiles/<%= profile.id %>/clone" title="Start a new role profile from this one">
+                    <i class="mdi mdi-content-copy"></i> Clone
+                </a>
+            <% } %>
+            <% if (canEdit && [S.PENDING_SEVAK, S.PENDING_ADMIN].includes(status)) { %>
+                <a class="rp-edit-btn" href="/role-profiles/<%= profile.id %>/edit" title="Change it before it is approved">
+                    <i class="mdi mdi-pencil-outline"></i> Edit
+                </a>
+            <% } %>
+            <% if (status === S.APPROVED) { %>
+                <a class="rp-pdf-btn" href="/role-profiles/<%= profile.id %>/pdf">
+                    <i class="mdi mdi-file-pdf-box"></i> Download PDF
+                </a>
+            <% } %>
+            <span class="rp-status rp-status-<%= status %>"><%= statusText(profile) %></span>
+        </div>
+    </div>
+    <div class="rp-card-body">
+
+        <% if (status === S.REJECTED) { %>
+            <div class="rp-alert rp-alert-error">
+                <i class="mdi mdi-close-circle-outline"></i>
+                Rejected by <%= profile.rejected_by %> on <%= fmt(profile.rejected_at) %>.
+                <% if (String(profile.reject_reason || '').trim()) { %><br><strong>Reason:</strong> <%= profile.reject_reason %><% } %>
+            </div>
+        <% } %>
+
+        <% if (status === S.APPROVED) { %>
+            <div class="rp-applies">
+                <i class="mdi mdi-account-check-outline"></i>
+                <% if (members.length) { %>
+                    <strong>Assigned to <%= members.length %> member<%= members.length === 1 ? '' : 's' %>.</strong>
+                <% } else { %>
+                    <strong>Not assigned to anyone yet.</strong>
+                <% } %>
+                It applies only to the members the <%= finalBy %> assigns — holding the designation
+                "<%= profile.designation_name %>" does not put anyone on it by itself.
+            </div>
+        <% } %>
+
+        <% if (canEdit && status === S.REJECTED) { %>
+            <div class="rp-decide">
+                <h4><i class="mdi mdi-refresh"></i> Rejected — you can revise and resubmit</h4>
+                <p style="font-size:0.83rem;color:var(--text-secondary);margin-bottom:12px;line-height:1.5">
+                    Make the changes asked for, then send it back for approval. The rejection stays in the history below.
+                </p>
+                <div class="rp-decide-actions">
+                    <a class="rp-btn-approve" href="/role-profiles/<%= profile.id %>/edit"><i class="mdi mdi-pencil-outline"></i> Edit and resubmit</a>
+                    <form method="post" action="/role-profiles/<%= profile.id %>/submit">
+                        <input type="hidden" name="csrf_test_name" value="<%= csrfToken %>">
+                        <button type="submit" class="rp-btn-reject"><i class="mdi mdi-send"></i> Resubmit unchanged</button>
+                    </form>
+                </div>
+            </div>
+        <% } else if (canEdit && status === S.DRAFT) { %>
+            <div class="rp-decide">
+                <h4><i class="mdi mdi-content-save-outline"></i> This is your draft</h4>
+                <p style="font-size:0.83rem;color:var(--text-secondary);margin-bottom:12px;line-height:1.5">
+                    Nobody else can see it yet. Send it for approval when you are ready<% if (profile.rp_approver_name) { %> — it will go to <strong><%= profile.rp_approver_name %></strong> first, then the <%= finalBy %><% } else { %> — it will go straight to the <%= finalBy %><% } %>.
+                </p>
+                <div class="rp-decide-actions">
+                    <form method="post" action="/role-profiles/<%= profile.id %>/submit">
+                        <input type="hidden" name="csrf_test_name" value="<%= csrfToken %>">
+                        <button type="submit" class="rp-btn-approve"><i class="mdi mdi-send"></i> Submit for approval</button>
+                    </form>
+                    <a class="rp-btn-reject" href="/role-profiles/<%= profile.id %>/edit"><i class="mdi mdi-pencil-outline"></i> Edit draft</a>
+                </div>
+            </div>
+        <% } %>
+
+        <% if (canEdit && !canAct && status === S.PENDING_SEVAK) { %>
+            <div class="rp-decide">
+                <h4><i class="mdi mdi-clock-outline"></i> Awaiting <%= profile.rp_approver_name || 'the RP Approver' %></h4>
+                <p style="font-size:0.83rem;color:var(--text-secondary);margin-bottom:12px;line-height:1.5">
+                    You can still change it until the RP Approver approves it — it stays with them, and they are told it changed.
+                    Once they approve, only the <%= finalBy %> can edit it.
+                </p>
+                <div class="rp-decide-actions">
+                    <a class="rp-btn-approve" href="/role-profiles/<%= profile.id %>/edit"><i class="mdi mdi-pencil-outline"></i> Edit before approval</a>
+                </div>
+            </div>
+        <% } %>
+
+        <% if (canEdit && !canAct && status === S.PENDING_ADMIN) { %>
+            <div class="rp-decide">
+                <h4><i class="mdi mdi-clock-outline"></i> Awaiting the <%= finalBy %></h4>
+                <p style="font-size:0.83rem;color:var(--text-secondary);margin-bottom:12px;line-height:1.5">
+                    You are your own RP Approver, so this went straight to the <%= finalBy %>. You can still change it
+                    until the <%= finalBy %> approves it — it stays with them, and they are told it changed.
+                </p>
+                <div class="rp-decide-actions">
+                    <a class="rp-btn-approve" href="/role-profiles/<%= profile.id %>/edit"><i class="mdi mdi-pencil-outline"></i> Edit before approval</a>
+                </div>
+            </div>
+        <% } %>
+
+        <% if (canAct) { %>
+            <div class="rp-decide">
+                <h4><i class="mdi mdi-gavel"></i> This profile is waiting on you</h4>
+                <% if (canEdit) { %>
+                    <p style="font-size:0.83rem;color:var(--text-secondary);margin-bottom:12px;line-height:1.5">
+                        Something to change first? <a href="/role-profiles/<%= profile.id %>/edit">Edit it</a> — it stays with you to approve afterwards.
+                    </p>
+                <% } %>
+                <form method="post" action="/role-profiles/<%= profile.id %>/decide">
+                    <input type="hidden" name="csrf_test_name" value="<%= csrfToken %>">
+                    <textarea name="reject_reason" placeholder="Reason — required only if you reject"></textarea>
+                    <div class="rp-decide-actions">
+                        <button type="submit" name="action" value="approve" class="rp-btn-approve">
+                            <i class="mdi mdi-check"></i> <%= status === S.PENDING_SEVAK ? `Approve and send to ${finalBy}` : 'Approve and make it live' %>
+                        </button>
+                        <button type="submit" name="action" value="reject" class="rp-btn-reject"><i class="mdi mdi-close"></i> Reject</button>
+                    </div>
+                </form>
+            </div>
+        <% } %>
+
+        <!-- TABS -->
+        <div class="rp-tabs" role="tablist">
+            <button type="button" class="rp-tab active" data-tab="details"><i class="mdi mdi-file-document-outline"></i> Details</button>
+            <% if (status === S.APPROVED) { %>
+                <button type="button" class="rp-tab" data-tab="members">
+                    <i class="mdi mdi-account-multiple-outline"></i> Members
+                    <% if (members.length) { %><span class="rp-tab-count"><%= members.length %></span><% } %>
+                </button>
+            <% } %>
+            <% if (versions.length) { %>
+                <button type="button" class="rp-tab" data-tab="versions">
+                    <i class="mdi mdi-source-branch"></i> Versions
+                    <% if (versions.length) { %><span class="rp-tab-count"><%= versions.length %></span><% } %>
+                    <% if (reviewDue) { %><span class="rp-tab-dot" title="This year's review is outstanding"></span><% } %>
+                </button>
+            <% } %>
+            <button type="button" class="rp-tab" data-tab="history">
+                <i class="mdi mdi-history"></i> History
+                <% if (history.length) { %><span class="rp-tab-count"><%= history.length %></span><% } %>
+            </button>
+        </div>
+
+        <div class="rp-tab-panel" data-panel="details">
+            <% if (String(profile.mission || '').trim()) { %>
+                <div class="rp-section">
+                    <h3><i class="mdi mdi-target"></i> Mission</h3>
+                    <div class="rp-mission"><%= profile.mission %></div>
+                </div>
+            <% } %>
+
+            <% if (profile.outcomes.length) { %>
+                <div class="rp-section">
+                    <h3><i class="mdi mdi-flag-checkered"></i> Key Outcomes</h3>
+                    <ul class="rp-outcomes">
+                        <% profile.outcomes.forEach(o => { %>
+                            <li><i class="mdi mdi-check-circle-outline"></i><span><%= o %></span></li>
+                        <% }) %>
+                    </ul>
+                </div>
+            <% } %>
+
+            <% if (profile.attributes.length) { %>
+                <div class="rp-section">
+                    <h3><i class="mdi mdi-format-list-numbered"></i> Skills</h3>
+                    <% profile.attributes.forEach(a => { %>
+                        <div class="rp-attr">
+                            <div class="rp-attr-top">
+                                <div><div class="rp-attr-name"><%= a.attribute_no %>. <%= a.attribute %></div></div>
+                                <% if (a.attribute_weight !== null && a.attribute_weight !== '') { %>
+                                    <span class="rp-weight"><%= trim2(a.attribute_weight) %></span>
+                                <% } %>
+                            </div>
+                            <% a.skills.forEach(s => { %>
+                                <div class="rp-skill">
+                                    <span><%= s.tech_skill %></span>
+                                    <% if (s.tech_weight !== null && s.tech_weight !== '') { %><span class="w"><%= trim2(s.tech_weight) %></span><% } %>
+                                </div>
+                            <% }) %>
+                        </div>
+                    <% }) %>
+                </div>
+            <% } %>
+        </div>
+
+        <% if (status === S.APPROVED) { %>
+        <div class="rp-tab-panel" data-panel="members" hidden>
+            <div class="rp-note-scope">
+                <i class="mdi mdi-information-outline"></i>
+                <div>
+                    This role profile applies only to the members the <strong><%= finalBy %></strong> assigns
+                    below. Nobody is added automatically — not even someone who holds the designation
+                    "<%= profile.designation_name %>" — and removing someone takes the profile off them.
+                </div>
+            </div>
+
+            <% if (!members.length) { %>
+                <div class="rp-empty-inline">No members assigned yet.<% if (!canAssign) { %> The <%= finalBy %> assigns them.<% } %></div>
+            <% } else { %>
+                <table class="rp-member-table">
+                    <thead><tr><th>Member</th><th>Designation</th><th>How</th><th>Assessment</th><th></th></tr></thead>
+                    <tbody>
+                    <% members.forEach(m => { const a = assessments[m.emp_code]; %>
+                        <tr>
+                            <td><div class="emp-name"><%= m.name || m.emp_code %></div><div class="rp-sub"><%= m.emp_code %></div></td>
+                            <td><span class="rp-sub"><%= m.designation || '—' %></span></td>
+                            <td>
+                                <span class="rp-src rp-src-manual"><i class="mdi mdi-account-plus-outline"></i> <%= m.assigned_by === 'SYSTEM' ? 'Carried over' : 'Assigned' + (m.assigned_by || m.assigned_by_name ? ' by ' + personName(m.assigned_by, m.assigned_by_name) : '') %></span>
+                                <% if (m.assigned_at) { %><div class="rp-sub"><%= fmt(m.assigned_at) %></div><% } %>
+                            </td>
+                            <td>
+                                <% if (a) { %>
+                                    <a class="rp-score-chip" href="/role-profiles/<%= profile.id %>/assess/<%= encodeURIComponent(m.emp_code) %>">
+                                        <i class="mdi mdi-clipboard-check-outline"></i> <%= trim2(a.percentage) %>%
+                                        <span style="opacity:.7;font-weight:600">(<%= trim2(a.total_score) %>/<%= trim2(a.max_score) %>)</span>
+                                    </a>
+                                <% } else if (canAssess) { %>
+                                    <a class="rp-edit-btn" href="/role-profiles/<%= profile.id %>/assess/<%= encodeURIComponent(m.emp_code) %>">
+                                        <i class="mdi mdi-clipboard-edit-outline"></i> Assess
+                                    </a>
+                                <% } else { %><span class="rp-none">Not assessed</span><% } %>
+                            </td>
+                            <td style="text-align:right">
+                                <% if (canAssign) { %>
+                                    <form method="post" action="/role-profiles/<%= profile.id %>/unassign-member"
+                                          onsubmit="return confirm(<%= JSON.stringify('Remove ' + (m.name || m.emp_code) + ' from this role profile?') %>);">
+                                        <input type="hidden" name="csrf_test_name" value="<%= csrfToken %>">
+                                        <input type="hidden" name="emp_code" value="<%= m.emp_code %>">
+                                        <button type="submit" class="rp-btn-tiny"><i class="mdi mdi-close"></i> Remove</button>
+                                    </form>
+                                <% } %>
+                            </td>
+                        </tr>
+                    <% }) %>
+                    </tbody>
+                </table>
+            <% } %>
+
+            <% if (canAssign) { %>
+                <%
+                  const assignedNow = assignable.filter(a => a.assigned);
+                  const offerable   = assignable.filter(a => !a.assigned);
+                  const holders     = offerable.filter(a => a.holds_designation).length;
+                %>
+                <div class="rp-assign-box">
+                    <h4><i class="mdi mdi-account-multiple-plus-outline"></i> Assign members</h4>
+                    <% if (!offerable.length && !assignedNow.length) { %>
+                        <p class="rp-sub">Nobody active in <%= profile.sangh_name %> to assign.</p>
+                    <% } else { %>
+                        <p class="rp-sub" style="margin-bottom:8px">
+                            Tick the members this profile is for and assign them. Members of <%= profile.sangh_name %>
+                            are listed<% if (holders) { %>, with the <%= holders %> who hold "<%= profile.designation_name %>" first<% } %>.
+                        </p>
+                        <form method="post" action="/role-profiles/<%= profile.id %>/assign-members">
+                            <input type="hidden" name="csrf_test_name" value="<%= csrfToken %>">
+                            <div class="rp-assign-list">
+                                <% assignedNow.forEach(a => { %>
+                                    <label class="rp-assign-item is-done">
+                                        <input type="checkbox" checked disabled>
+                                        <span>
+                                            <span class="emp-name"><%= a.name %></span>
+                                            <span class="rp-sub"><%= a.emp_code %><%= a.designation ? ' · ' + a.designation : '' %></span>
+                                            <span class="rp-hint rp-hint-done"><i class="mdi mdi-check"></i> Assigned</span>
+                                        </span>
+                                    </label>
+                                <% }) %>
+                                <% offerable.forEach(a => { %>
+                                    <label class="rp-assign-item">
+                                        <input type="checkbox" name="emp_codes[]" value="<%= a.emp_code %>">
+                                        <span>
+                                            <span class="emp-name"><%= a.name %></span>
+                                            <span class="rp-sub"><%= a.emp_code %><%= a.designation ? ' · ' + a.designation : '' %></span>
+                                            <% if (a.holds_designation) { %><span class="rp-hint rp-hint-done"><i class="mdi mdi-badge-account-outline"></i> Holds this designation</span><% } %>
+                                            <% if (a.other_profile) { %><span class="rp-hint"><i class="mdi mdi-information-outline"></i> Already on "<%= a.other_profile.designation %>"</span><% } %>
+                                        </span>
+                                    </label>
+                                <% }) %>
+                            </div>
+                            <% if (offerable.length) { %>
+                                <button type="submit" class="rp-btn-approve" style="margin-top:8px"><i class="mdi mdi-check"></i> Assign selected</button>
+                            <% } %>
+                        </form>
+                    <% } %>
+                </div>
+            <% } %>
+        </div>
+        <% } %>
+
+        <div class="rp-tab-panel" data-panel="versions" hidden>
+            <% if (versions.length) { %>
+                <% if (status !== S.APPROVED && inForce) { %>
+                    <div class="rp-version-banner">
+                        <i class="mdi mdi-progress-clock"></i>
+                        <div>
+                            A revision is going through approval. <strong>Version <%= inForce.version_no %></strong>
+                            stays in force until it is approved, so assessments already written are untouched
+                            and any assessment made now still runs against version <%= inForce.version_no %>.
+                        </div>
+                    </div>
+                <% } %>
+                <div class="rp-section">
+                    <h3><i class="mdi mdi-calendar-range-outline"></i> Financial year</h3>
+                </div>
+                <p class="rp-sub" style="margin:-4px 0 12px">
+                    Each year the role profile is reviewed first — confirmed as it stands, or updated and
+                    re-approved. Whatever that review settles on is the version people are assessed against
+                    for that year.
+                </p>
+
+                <table class="rp-member-table rp-year-table">
+                    <thead>
+                        <tr><th>Financial year</th><th>Review</th><th>Version in force</th><th>Assessments</th><th></th></tr>
+                    </thead>
+                    <tbody>
+                    <% yearRows.forEach(y => { %>
+                        <tr<%= y.is_current ? ' class="is-current"' : '' %>>
+                            <td>
+                                <span class="rp-year-tag"><%= y.year %></span>
+                                <% if (y.is_current) { %><span class="rp-sub">current</span>
+                                <% } else if (y.open) { %><span class="rp-sub">still open</span>
+                                <% } else { %><span class="rp-sub">closed</span><% } %>
+                            </td>
+                            <td>
+                                <% if (y.review) { %>
+                                    <div class="rp-review-tag <%= y.review.outcome %>">
+                                        <i class="mdi <%= y.review.outcome === 'unchanged' ? 'mdi-check' : 'mdi-pencil-outline' %>"></i>
+                                        <%= outcomeLabels[y.review.outcome] || y.review.outcome %>
+                                    </div>
+                                    <div class="rp-sub"><%= y.review.reviewed_by_name || y.review.reviewed_by %> · <%= fmt(y.review.reviewed_at) %></div>
+                                    <% if (String(y.review.note || '').trim()) { %><div class="rp-sub">“<%= y.review.note %>”</div><% } %>
+                                <% } else { %>
+                                    <span class="rp-review-tag pending"><i class="mdi mdi-calendar-alert"></i> Not reviewed yet</span>
+                                <% } %>
+                            </td>
+                            <td>
+                                <% if (y.version_no) { %>
+                                    <span class="rp-vchip">v<%= y.version_no %></span>
+                                <% } else if (y.would_use) { %>
+                                    <span class="rp-none">would be v<%= y.would_use %></span>
+                                <% } else { %><span class="rp-none">—</span><% } %>
+                            </td>
+                            <td>
+                                <% if (y.assessments) { %><span class="rp-count-pill"><%= y.assessments %></span>
+                                <% } else { %><span class="rp-none">—</span><% } %>
+                            </td>
+                            <td style="white-space:nowrap">
+                                <% if (!y.review && y.open && canReview) { %>
+                                    <form method="post" action="/role-profiles/<%= profile.id %>/review" class="rp-inline-form">
+                                        <input type="hidden" name="csrf_test_name" value="<%= csrfToken %>">
+                                        <input type="hidden" name="financial_year" value="<%= y.year %>">
+                                        <input type="text" name="note" maxlength="255" placeholder="Note (optional)">
+                                        <button type="submit" class="rp-btn-tiny-ok"><i class="mdi mdi-check"></i> No change</button>
+                                    </form>
+                                    <a class="rp-edit-btn" href="/role-profiles/<%= profile.id %>/edit"><i class="mdi mdi-pencil-outline"></i> Update</a>
+                                <% } else if (!y.review && !y.open) { %>
+                                    <span class="rp-sub">closed for review</span>
+                                <% } %>
+                            </td>
+                        </tr>
+                    <% }) %>
+                    </tbody>
+                </table>
+
+                <% if (reviewDue && !canReview) { %>
+                    <p class="rp-sub" style="margin-top:10px">Only the RP Creator or the PSP Approver can record a review.</p>
+                <% } %>
+
+                <div class="rp-section" style="margin-top:18px">
+                    <h3><i class="mdi mdi-source-branch"></i> Version history</h3>
+                </div>
+                <% if (!versions.length) { %>
+                    <div class="rp-empty-inline">No version has been frozen yet.</div>
+                <% } else { %>
+                    <table class="rp-member-table rp-version-table">
+                        <thead>
+                            <tr><th>Version</th><th>Approved</th><th>Financial years</th><th>Assessments</th><th></th></tr>
+                        </thead>
+                        <tbody>
+                        <% versions.forEach((v, i) => { %>
+                            <tr>
+                                <td>
+                                    <span class="rp-vchip<%= i === 0 ? ' current' : '' %>">v<%= v.version_no %></span>
+                                    <% if (i === 0) { %><span class="rp-sub">current</span><% } %>
+                                </td>
+                                <td>
+                                    <div><%= fmt(v.approved_at) %></div>
+                                    <div class="rp-sub"><%= v.reason || '—' %></div>
+                                </td>
+                                <td>
+                                    <% if (!v.years.length) { %><span class="rp-none">not yet in force</span><% } %>
+                                    <% v.years.forEach(y => { %>
+                                        <span class="rp-year-tag" title="<%= outcomeLabels[y.outcome] || y.outcome %><%= y.reviewed_by_name ? ' — ' + y.reviewed_by_name : '' %>"><%= y.financial_year %></span>
+                                    <% }) %>
+                                </td>
+                                <td>
+                                    <% if (v.assessment_count) { %>
+                                        <span class="rp-count-pill"><%= v.assessment_count %></span>
+                                    <% } else { %><span class="rp-none">—</span><% } %>
+                                </td>
+                                <td style="white-space:nowrap">
+                                    <a class="rp-edit-btn" href="/role-profiles/<%= profile.id %>/versions/<%= v.id %>"><i class="mdi mdi-eye-outline"></i> View</a>
+                                    <a class="rp-edit-btn rp-edit-btn-pdf" href="/role-profiles/<%= profile.id %>/versions/<%= v.id %>/pdf"><i class="mdi mdi-file-pdf-box"></i> PDF</a>
+                                </td>
+                            </tr>
+                        <% }) %>
+                        </tbody>
+                    </table>
+                <% } %>
+            <% } %>
+        </div>
+
+        <div class="rp-tab-panel" data-panel="history" hidden>
+            <div class="rp-section" style="margin-bottom:16px"><h3><i class="mdi mdi-progress-check"></i> Current stage</h3></div>
+            <div class="rp-timeline">
+                <div class="rp-step done">
+                    <div class="l">Created by</div>
+                    <div class="v"><%= personName(profile.created_by, profile.created_by_name) %></div>
+                    <div class="d"><%= fmt(profile.created_at) %></div>
+                </div>
+                <div class="rp-step <%= profile.rp_approver_action_at ? 'done' : (status === S.PENDING_SEVAK ? 'current' : '') %>">
+                    <div class="l">RP Approver</div>
+                    <div class="v"><%= profile.rp_approver_code === '' ? 'Skipped — no RP Approver recorded' : profile.rp_approver_name %></div>
+                    <div class="d"><%= profile.rp_approver_action_at ? fmt(profile.rp_approver_action_at) : (profile.rp_approver_code === '' ? `Went straight to ${finalBy}` : 'Waiting') %></div>
+                </div>
+                <div class="rp-step <%= profile.admin_action_at ? 'done' : (status === S.PENDING_ADMIN ? 'current' : '') %>">
+                    <div class="l"><%= finalBy %></div>
+                    <div class="v"><%= profile.admin_action_at ? personName(profile.admin_action_by, profile.admin_action_by) : finalBy %></div>
+                    <div class="d"><%= profile.admin_action_at ? fmt(profile.admin_action_at) : 'Waiting' %></div>
+                </div>
+            </div>
+
+            <% if (history.length) { %>
+                <div class="rp-section">
+                    <ul class="rp-history">
+                    <% [...history].reverse().forEach(ev => {
+                         const meta = historyMeta[ev.action] || [ev.action, 'mdi-circle-small', 'muted']; %>
+                        <li>
+                            <span class="rp-hist-dot rp-hist-<%= meta[2] %>"><i class="mdi <%= meta[1] %>"></i></span>
+                            <span class="rp-hist-body">
+                                <div class="rp-hist-title"><%= meta[0] %></div>
+                                <% if (ev.actor_name || ev.actor_code) { %>
+                                    <% const who = personName(ev.actor_code, ev.actor_name); %>
+                                    <div class="rp-hist-who">by <%= who %><%= ev.actor_code && who !== ev.actor_code && who !== 'Admin' && ev.actor_code !== 'SYSTEM' ? ' (' + ev.actor_code + ')' : '' %></div>
+                                <% } %>
+                                <% if (String(ev.note || '').trim()) { %><div class="rp-hist-note"><%= ev.note %></div><% } %>
+                                <div class="rp-hist-time"><%= fmt(ev.created_at) %></div>
+                            </span>
+                        </li>
+                    <% }) %>
+                    </ul>
+                </div>
+            <% } %>
+        </div>
+    </div>
+</div>
+
+<script>
+$(function () {
+    $('.rp-tab').on('click', function () {
+        var tab = $(this).data('tab');
+        $('.rp-tab').removeClass('active');
+        $(this).addClass('active');
+        $('.rp-tab-panel').prop('hidden', true).filter('[data-panel="' + tab + '"]').prop('hidden', false);
+        try { sessionStorage.setItem('rpProfileTab', tab); } catch (e) {}
+    });
+
+    var wanted = <%- JSON.stringify(tab || '') %>;
+    if (wanted && $('.rp-tab[data-tab="' + wanted + '"]').length) {
+        $('.rp-tab[data-tab="' + wanted + '"]').trigger('click');
+    } else {
+        try {
+            var saved = sessionStorage.getItem('rpProfileTab');
+            if (saved) $('.rp-tab[data-tab="' + saved + '"]').trigger('click');
+        } catch (e) {}
+    }
+});
+</script>

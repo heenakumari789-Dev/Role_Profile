@@ -1,0 +1,114 @@
+<%
+  const icons = { rp_approver: 'mdi-account-heart-outline', rp_creator: 'mdi-shield-account-outline', pracharak: 'mdi-bullhorn-outline' };
+  const person = (name, variant, icon) => !String(name || '').trim()
+    ? '<span class="rp-none">—</span>'
+    : `<span class="rp-person rp-person-${variant}"><i class="mdi ${icon}"></i>${escapeHtml(name)}</span>`;
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+%>
+<div class="rp-card" id="member-list-card">
+    <div class="rp-card-header">
+        <div class="rp-card-header-left">
+            <div class="rp-card-header-icon"><i class="mdi mdi-format-list-bulleted"></i></div>
+            <div>
+                <div class="rp-card-title">Member List</div>
+                <div class="rp-card-subtitle"><%= members.length.toLocaleString() %> active members and the RP Approver, RP Creator and Pracharak assigned to each</div>
+            </div>
+        </div>
+    </div>
+    <div class="rp-card-body">
+        <div class="rp-filter-bar">
+            <span class="rp-filter-label">Show members with:</span>
+            <button type="button" class="rp-chip active" data-role="all">All</button>
+            <button type="button" class="rp-chip" data-role="rp_approver">An RP Approver</button>
+            <button type="button" class="rp-chip" data-role="rp_creator">An RP Creator</button>
+            <button type="button" class="rp-chip" data-role="pracharak">A Pracharak</button>
+            <button type="button" class="rp-chip" data-role="none">No one assigned</button>
+        </div>
+
+        <div class="table-responsive">
+            <table class="display" id="memberTable" style="width:100%">
+                <thead>
+                    <tr>
+                        <th>#</th><th>Member Code</th><th>Name</th><th>Sangh</th><th>Grade</th>
+                        <th>RP Approver</th><th>RP Creator</th><th>Pracharak</th>
+                    </tr>
+                </thead>
+                <tbody>
+                <% members.forEach((m, i) => { %>
+                    <tr data-emp-code="<%= m.emp_code %>" data-sangh-code="<%= m.sangh_code || '' %>">
+                        <td><span class="serial-num"><%= i + 1 %></span></td>
+                        <td><span class="emp-code-cell"><%= m.emp_code %></span></td>
+                        <td>
+                            <span class="rp-name-cell">
+                                <span class="emp-name"><%= m.name %></span>
+                                <% if (m.email_id) { %>
+                                    <a href="mailto:<%= m.email_id %>" class="emp-email"><%= m.email_id %></a>
+                                <% } else { %>
+                                    <span class="rp-no-email">no email on record</span>
+                                <% } %>
+                            </span>
+                        </td>
+                        <td><span class="emp-sangh"><%= m.sangh_name || '—' %></span></td>
+                        <td><span class="emp-grade"><%= m.grade || '—' %></span></td>
+                        <% Object.entries(roles).forEach(([role, cols]) => { %>
+                            <td class="rp-role-col rp-cell-<%= role %>" data-order="<%= m[cols.name] || '' %>">
+                                <%- person(m[cols.name], role, icons[role]) %>
+                            </td>
+                        <% }) %>
+                    </tr>
+                <% }) %>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<script>
+$(function () {
+    var ROLE_COLUMN = { rp_approver: 5, rp_creator: 6, pracharak: 7 };
+    var roleFilter = 'all';
+
+    function isAssigned(settings, dataIndex, column) {
+        return $(settings.aoData[dataIndex].anCells[column]).find('.rp-none').length === 0;
+    }
+
+    $.fn.dataTable.ext.search.push(function (settings, data, dataIndex) {
+        if (settings.nTable.id !== 'memberTable' || roleFilter === 'all') return true;
+        if (roleFilter === 'none') {
+            return !isAssigned(settings, dataIndex, ROLE_COLUMN.rp_approver)
+                && !isAssigned(settings, dataIndex, ROLE_COLUMN.rp_creator)
+                && !isAssigned(settings, dataIndex, ROLE_COLUMN.pracharak);
+        }
+        return isAssigned(settings, dataIndex, ROLE_COLUMN[roleFilter]);
+    });
+
+    var table = new DataTable('#memberTable', {
+        pageLength: 25,
+        order: [],
+        columnDefs: [
+            { targets: [0], orderable: false, searchable: false },
+            { targets: [5, 6, 7], className: 'rp-role-col' }
+        ],
+        layout: { topStart: { buttons: [
+            { extend: 'csv',   text: '<i class="mdi mdi-file-delimited-outline"></i> CSV',   className: 'dt-button' },
+            { extend: 'excel', text: '<i class="mdi mdi-microsoft-excel"></i> Excel',        className: 'dt-button' }
+        ] } },
+        language: {
+            search: '<i class="mdi mdi-magnify"></i>', searchPlaceholder: 'Search members...',
+            lengthMenu: 'Show _MENU_ entries', info: 'Showing _START_ to _END_ of _TOTAL_ members',
+            infoEmpty: 'No members to show', zeroRecords: 'No members match your search',
+            paginate: { first: '<i class="mdi mdi-chevron-double-left"></i>', last: '<i class="mdi mdi-chevron-double-right"></i>',
+                        previous: '<i class="mdi mdi-chevron-left"></i>', next: '<i class="mdi mdi-chevron-right"></i>' }
+        }
+    });
+
+    $('.rp-chip').on('click', function () {
+        $('.rp-chip').removeClass('active');
+        $(this).addClass('active');
+        roleFilter = $(this).data('role');
+        table.draw();
+    });
+});
+</script>

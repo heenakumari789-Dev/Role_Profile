@@ -1,0 +1,30 @@
+<div class="rp-login-wrap">
+    <div class="rp-card rp-login-card">
+        <div class="rp-card-header">
+            <div class="rp-card-header-left">
+                <div class="rp-card-header-icon"><i class="mdi mdi-lock-outline"></i></div>
+                <div>
+                    <div class="rp-card-title">Sign In</div>
+                    <div class="rp-card-subtitle">Use your Pakka member code and password</div>
+                </div>
+            </div>
+        </div>
+        <div class="rp-card-body">
+            <form method="post" action="/login" autocomplete="on">
+                <input type="hidden" name="csrf_test_name" value="<%= csrfToken %>">
+                <div class="rp-field">
+                    <label for="emp_code">Member Code</label>
+                    <input type="text" id="emp_code" name="emp_code" required autofocus
+                           autocapitalize="characters" autocomplete="username" placeholder="e.g. MM008">
+                </div>
+                <div class="rp-field">
+                    <label for="password">Password</label>
+                    <input type="password" id="password" name="password" required
+                           autocomplete="current-password" placeholder="Your password">
+                </div>
+                <button type="submit" class="rp-btn"><i class="mdi mdi-login"></i> Sign In</button>
+            </form>
+            <p class="rp-login-note">Sign in to view members and role profiles.</p>
+        </div>
+    </div>
+</div>

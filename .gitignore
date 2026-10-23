@@ -1,0 +1,16 @@
+# Dependencies — reinstalled with `npm install`
+node_modules/
+
+# Local settings and secrets — copy .env.example to .env
+.env
+.env.*
+!.env.example
+
+# Runtime data: login sessions
+writable/
+
+# OS / editor clutter
+.DS_Store
+.vscode/
+.idea/
+*.log

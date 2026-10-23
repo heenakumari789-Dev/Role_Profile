@@ -1,0 +1,179 @@
+<%
+  const icons = { rp_approver: 'mdi-account-heart-outline', rp_creator: 'mdi-shield-account-outline', pracharak: 'mdi-bullhorn-outline' };
+  const roleKeys = Object.keys(roles);
+
+  const renderCell = (s, role) => {
+    if (s[role + '_mixed']) {
+      return '<span class="rp-mixed"><i class="mdi mdi-call-split"></i>Mixed (' + Number(s[role + '_variants']) + ' people)</span>';
+    }
+    const name = String(s[role + '_name'] || '').trim();
+    if (name === '') return '<span class="rp-none">—</span>';
+
+    let html = '<span class="rp-person rp-person-' + role + '"><i class="mdi ' + icons[role] + '"></i>' + h(name) + '</span>';
+    // Some members of the sangh may still be unset even when the rest agree.
+    const missing = Number(s[role + '_missing'] || 0);
+    if (missing > 0) html += ' <span class="rp-none" title="' + missing + ' member(s) not set">+' + missing + ' unset</span>';
+    return html;
+  };
+
+  const totalMembers = sanghs.reduce((t, s) => t + Number(s.member_count || 0), 0);
+%>
+<div class="rp-card">
+    <div class="rp-card-header">
+        <div class="rp-card-header-left">
+            <div class="rp-card-header-icon"><i class="mdi mdi-account-group-outline"></i></div>
+            <div>
+                <div class="rp-card-title">Assign by Sangh</div>
+                <div class="rp-card-subtitle"><%= sanghs.length %> sanghs covering <%= totalMembers.toLocaleString('en-IN') %> active members</div>
+            </div>
+        </div>
+    </div>
+    <div class="rp-card-body">
+
+        <div class="rp-scope-note">
+            <i class="mdi mdi-information-outline"></i>
+            <div>
+                <strong>Whole sangh</strong> applies a role to every active member at once.
+                <strong>Pick members</strong> opens the sangh so you can tick a few and give
+                them one person, then tick the rest and give them another. A sangh shows
+                <span class="rp-mixed" style="padding:1px 8px"><i class="mdi mdi-call-split"></i>Mixed</span>
+                when its members currently hold different people — which is expected once you
+                split a sangh deliberately.
+            </div>
+        </div>
+
+        <div class="rp-filter-bar">
+            <span class="rp-filter-label">Show:</span>
+            <button type="button" class="rp-chip active" data-filter="all">All sanghs</button>
+            <button type="button" class="rp-chip" data-filter="rp_approver">Missing RP Approver</button>
+            <button type="button" class="rp-chip" data-filter="rp_creator">Missing RP Creator</button>
+            <button type="button" class="rp-chip" data-filter="pracharak">Missing Pracharak</button>
+            <button type="button" class="rp-chip" data-filter="mixed">Mixed</button>
+        </div>
+
+        <div class="table-responsive">
+            <table class="display" id="sanghTable" style="width:100%">
+                <thead>
+                    <tr><th>Sangh</th><th>Members</th><th>RP Approver</th><th>RP Creator</th><th>Pracharak</th><th>Action</th></tr>
+                </thead>
+                <tbody>
+                <% sanghs.forEach(s => { %>
+                    <%
+                      const values = {};
+                      roleKeys.forEach(role => {
+                          const code = String(s[role + '_code'] || '').trim();
+                          const name = String(s[role + '_name'] || '').trim();
+                          // Mixed sanghs start the picker empty so nothing is implied.
+                          values[role] = s[role + '_mixed'] ? '' : (code !== '' ? code : name);
+                      });
+                      const sanghName = String(s.sangh_name || '').trim() || s.sangh_code;
+                    %>
+                    <tr data-sangh-code="<%= s.sangh_code %>"
+                        data-name="<%= sanghName %>"
+                        data-members="<%= Number(s.member_count) %>"
+                        data-values="<%= JSON.stringify(values) %>">
+                        <td>
+                            <span class="rp-sangh-cell">
+                                <span class="emp-name"><%= sanghName %></span>
+                                <span class="code"><%= s.sangh_code %></span>
+                            </span>
+                        </td>
+                        <td data-order="<%= Number(s.member_count) %>">
+                            <span class="rp-count-pill"><%= Number(s.member_count) %></span>
+                        </td>
+                        <% roleKeys.forEach(role => { %>
+                            <td class="rp-cell-<%= role %>"
+                                data-mixed="<%= s[role + '_mixed'] ? '1' : '0' %>"
+                                data-missing="<%= Number(s[role + '_missing'] || 0) %>"><%- renderCell(s, role) %></td>
+                        <% }) %>
+                        <td style="white-space:nowrap">
+                            <button type="button" class="rp-edit-btn js-sangh-edit"><i class="mdi mdi-account-group-outline"></i> Whole sangh</button>
+                            <a class="rp-edit-btn" href="/assign/sangh/<%= encodeURIComponent(s.sangh_code) %>"><i class="mdi mdi-account-multiple-check-outline"></i> Pick members</a>
+                        </td>
+                    </tr>
+                <% }) %>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<%- await include('partials/assign_editor') %>
+
+<script>
+$(document).ready(function () {
+    var ICONS  = <%- JSON.stringify(icons) %>;
+    var COLUMN = { rp_approver: 2, rp_creator: 3, pracharak: 4 };
+    var filter = 'all';
+
+    function cell(settings, dataIndex, role) {
+        return $(settings.aoData[dataIndex].anCells[COLUMN[role]]);
+    }
+
+    $.fn.dataTable.ext.search.push(function (settings, data, dataIndex) {
+        if (settings.nTable.id !== 'sanghTable' || filter === 'all') { return true; }
+
+        if (filter === 'mixed') {
+            return Object.keys(COLUMN).some(function (role) {
+                return cell(settings, dataIndex, role).data('mixed') === 1;
+            });
+        }
+        // "Missing" means nobody set, or some members still unset.
+        var $c = cell(settings, dataIndex, filter);
+        return $c.find('.rp-none').length > 0 || $c.data('mixed') === 1;
+    });
+
+    var table = new DataTable('#sanghTable', {
+        pageLength: 25,
+        order: [],
+        columnDefs: [{ targets: [5], orderable: false, searchable: false }],
+        language: {
+            search: '<i class="mdi mdi-magnify"></i>',
+            searchPlaceholder: 'Search sanghs...',
+            lengthMenu: 'Show _MENU_ entries',
+            info: 'Showing _START_ to _END_ of _TOTAL_ sanghs',
+            infoEmpty: 'No sanghs to show',
+            zeroRecords: 'No sanghs match your search',
+            paginate: { first: '<i class="mdi mdi-chevron-double-left"></i>', last: '<i class="mdi mdi-chevron-double-right"></i>',
+                        previous: '<i class="mdi mdi-chevron-left"></i>', next: '<i class="mdi mdi-chevron-right"></i>' }
+        }
+    });
+
+    $('.rp-chip').on('click', function () {
+        $('.rp-chip').removeClass('active');
+        $(this).addClass('active');
+        filter = $(this).data('filter');
+        table.draw();
+    });
+
+    $('#sanghTable tbody').on('click', '.js-sangh-edit', function () {
+        var $row = $(this).closest('tr');
+        var members = $row.data('members');
+        RP_ASSIGN.open({
+            scope: 'sangh',
+            key: $row.data('sangh-code'),
+            name: $row.data('name'),
+            meta: $row.data('sangh-code') + ' · ' + members + ' active member' + (members === 1 ? '' : 's'),
+            notice: 'Saving will apply to all ' + members + ' active member' + (members === 1 ? '' : 's') + ' of this sangh.',
+            values: $row.data('values') || {}
+        });
+    });
+
+    RP_ASSIGN.onSaved(function (key, role, personName, personKey) {
+        var $row = $('#sanghTable tbody tr').filter(function () {
+            return String($(this).data('sangh-code')) === String(key);
+        });
+        if (!$row.length) { return; }
+
+        var html = personName
+            ? '<span class="rp-person rp-person-' + role + '"><i class="mdi ' + ICONS[role] + '"></i>' + $('<div>').text(personName).html() + '</span>'
+            : '<span class="rp-none">—</span>';
+        // The whole sangh now shares one person, so it is no longer mixed or partial.
+        $row.find('.rp-cell-' + role).html(html).data('mixed', 0).data('missing', 0);
+
+        var values = $row.data('values') || {};
+        values[role] = personKey;
+        $row.data('values', values);
+    });
+});
+</script>

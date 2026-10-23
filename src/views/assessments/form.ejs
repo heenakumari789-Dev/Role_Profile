@@ -1,0 +1,255 @@
+<%
+  const readOnly = !canAssess;
+  const weightSum = skills.reduce((s, k) => s + Number(k.tech_weight || 0), 0);
+  const gapsNoted = skills.filter((k) => String(k.training_gap || '').trim() !== '').length;
+  const trim2 = (v) => String(Math.round(Number(v) * 100) / 100);
+  const fmtDate = (v) => fmtDateTime(v) || '—';
+  let lastAttr = null;
+%>
+<a class="rp-back-link" href="/role-profiles/<%= profile.id %>"><i class="mdi mdi-arrow-left"></i> Back to role profile</a>
+
+<div class="rp-card">
+    <div class="rp-card-header">
+        <div class="rp-card-header-left">
+            <div class="rp-card-header-icon"><i class="mdi mdi-clipboard-check-outline"></i></div>
+            <div>
+                <div class="rp-card-title">Role Profile Assessment</div>
+                <div class="rp-card-subtitle"><%= profile.designation_name %> · <%= profile.sangh_name %></div>
+            </div>
+        </div>
+    </div>
+    <div class="rp-card-body">
+
+        <div class="rp-assess-head">
+            <div>
+                <div class="who"><%= member.name || member.emp_code %></div>
+                <div class="sub">
+                    <%= member.emp_code %><%= member.designation ? ' · ' + member.designation : '' %>
+                    · <strong><%= chosen %></strong>
+                    <% if (existing) { %>
+                        · last assessed by <%= personName(existing.assessed_by, existing.assessed_by_name) %> on <%= fmtDate(existing.updated_at || existing.created_at) %>
+                    <% } %>
+                </div>
+            </div>
+            <div class="rp-head-right">
+                <% if (existing) { %>
+                    <a class="rp-pdf-btn" href="/role-profiles/<%= profile.id %>/assess/<%= encodeURIComponent(member.emp_code) %>/pdf?fy=<%= encodeURIComponent(chosen) %>">
+                        <i class="mdi mdi-file-pdf-box"></i> Download PDF
+                    </a>
+                <% } %>
+                <div class="rp-score-box">
+                    <div class="n"><span id="grandPct">0</span>%</div>
+                    <div class="l"><span id="grandTotal">0</span> of <span id="grandMax">0</span></div>
+                </div>
+            </div>
+        </div>
+
+        <% if (version) { %>
+            <div class="rp-version-banner<%= (reviewDue && !existing) ? ' due' : '' %>">
+                <i class="mdi <%= (reviewDue && !existing) ? 'mdi-calendar-alert' : 'mdi-source-branch' %>"></i>
+                <div>
+                    <% if (existing) { %>
+                        Assessed against <strong>version <%= version.version_no %></strong> of this role profile,
+                        approved <%= fmtDate(version.approved_at) %>. The wording below is the wording of that day —
+                        later revisions do not change it.
+                    <% } else if (reviewDue) { %>
+                        <strong><%= chosen %> has not been reviewed yet.</strong>
+                        Confirm the role profile still stands for this year — or update it — before assessing.
+                        <a href="/role-profiles/<%= profile.id %>?tab=versions">Go to the yearly review</a>.
+                    <% } else { %>
+                        Assessing against <strong>version <%= version.version_no %></strong>
+                        <% if (review) { %>(<%= (outcomeLabels[review.outcome] || review.outcome).toLowerCase() %> for <%= chosen %>)<% } %>.
+                    <% } %>
+                    <a href="/role-profiles/<%= profile.id %>/versions/<%= version.id %>">View that version</a>
+                </div>
+            </div>
+        <% } %>
+
+        <form method="get" class="rp-year-bar">
+            <label for="fy"><i class="mdi mdi-calendar-range-outline"></i> Financial year</label>
+            <select name="fy" id="fy" onchange="this.form.submit()">
+                <% years.forEach(y => { %>
+                    <option value="<%= y.year %>" <%= y.year === chosen ? 'selected' : '' %>><%= y.year %><%= y.is_current ? ' — current' : '' %></option>
+                <% }) %>
+            </select>
+            <% if (!existing) { %>
+                <span class="rp-year-note"><i class="mdi mdi-information-outline"></i> Not yet assessed for <%= chosen %></span>
+            <% } else if (canAssess) { %>
+                <span class="rp-year-note rp-locked"><i class="mdi mdi-pencil-outline"></i> Already assessed for <%= chosen %> — as PSP Approver you may correct it.</span>
+            <% } else if (isAuthor) { %>
+                <span class="rp-year-note rp-locked"><i class="mdi mdi-lock-check-outline"></i> Assessed for <%= chosen %> — final. The next assessment is due in the following financial year.</span>
+            <% } %>
+            <% if (!yearOpen) { %>
+                <span class="rp-year-note rp-closed"><i class="mdi mdi-lock-outline"></i> <%= chosen %> is closed — only <%= current %> and <%= previous %> are open.</span>
+            <% } %>
+            <% if (historyYears.filter(h => h.financial_year !== chosen).length) { %>
+                <span class="rp-year-note">Earlier:
+                    <% historyYears.filter(h => h.financial_year !== chosen).forEach(h => { %>
+                        <a class="rp-year-chip" href="?fy=<%= encodeURIComponent(h.financial_year) %>"><%= h.financial_year %> · <%= trim2(h.percentage) %>%</a>
+                    <% }) %>
+                </span>
+            <% } %>
+        </form>
+
+        <div class="rp-legend">
+            <span>Rate each attribute from <b>1</b> to <b>4</b>.</span>
+            <span>Score for a line is <b>weight &times; rating</b>.</span>
+            <span>All weights total <b><%= trim2(weightSum) %></b>, so a full <b>4</b> everywhere scores <b><%= trim2(weightSum * 4) %></b>.</span>
+            <span>Note a <b>training gap</b> against any attribute that needs development — required when the rating is <b>2</b> or below, optional otherwise.</span>
+        </div>
+
+        <form method="post" action="/role-profiles/<%= profile.id %>/assess/<%= encodeURIComponent(member.emp_code) %>">
+            <input type="hidden" name="csrf_test_name" value="<%= csrfToken %>">
+            <input type="hidden" name="financial_year" value="<%= chosen %>">
+            <div class="table-responsive">
+                <table class="rp-assess-table">
+                    <thead>
+                        <tr><th>Attribute</th><th class="num">Weight</th><th class="num">Rating</th><th class="num">Weight &times; Rating</th><th>Training gap</th></tr>
+                    </thead>
+                    <tbody>
+                    <% skills.forEach(s => { %>
+                        <% if (lastAttr !== s.attribute_no) { lastAttr = s.attribute_no; %>
+                            <tr class="rp-attr-row">
+                                <td colspan="5"><%= s.attribute_no %>. <%= s.attribute %>
+                                    <span class="wt">skill weight <%= trim2(s.attribute_weight) %></span></td>
+                            </tr>
+                        <% } %>
+                        <% const rating = s.rating === null ? '' : Number(s.rating); %>
+                        <tr>
+                            <td><span class="rp-skill-text"><%= s.tech_skill %></span></td>
+                            <td class="num"><span class="rp-wt js-weight" data-weight="<%= Number(s.tech_weight) %>"><%= trim2(s.tech_weight) %></span></td>
+                            <td class="num">
+                                <select class="rp-rating js-rating<%= rating === '' ? ' unrated' : '' %>" name="rating[d<%= s.id %>]" <%= readOnly ? 'disabled' : '' %>>
+                                    <option value="">—</option>
+                                    <% scale.forEach(v => { %>
+                                        <option value="<%= v %>" <%= rating !== '' && Math.abs(rating - v) < 0.001 ? 'selected' : '' %>><%= v %></option>
+                                    <% }) %>
+                                </select>
+                            </td>
+                            <td class="num"><span class="rp-line-score zero js-score">0</span></td>
+                            <td>
+                                <% if (readOnly) { %>
+                                    <% const g = String(s.training_gap || '').trim(); %>
+                                    <span class="rp-gap-read<%= g === '' ? ' none' : '' %>"><%= g === '' ? '—' : g %></span>
+                                <% } else { %>
+                                    <input type="text" class="rp-gap js-gap" name="gap[d<%= s.id %>]" value="<%= s.training_gap || '' %>" placeholder="Training needed, if any">
+                                <% } %>
+                            </td>
+                        </tr>
+                    <% }) %>
+                        <tr class="rp-total-row">
+                            <td>Total</td>
+                            <td class="num"><span id="weightSum">0</span></td>
+                            <td class="num"><span id="pct">0</span>%</td>
+                            <td class="num"><span id="totalScore">0</span> / <span id="maxScore">0</span></td>
+                            <td><span id="gapCount"><%= gapsNoted %></span> gap(s) noted</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="rp-save-bar">
+                <% if (!readOnly && reviewDue && !existing) { %>
+                    <span style="font-size:0.78rem;color:var(--text-muted)">
+                        <i class="mdi mdi-calendar-alert"></i> <%= chosen %> must be reviewed before anyone is assessed against this profile.
+                    </span>
+                    <a class="rp-btn-save" href="/role-profiles/<%= profile.id %>?tab=versions">
+                        <i class="mdi mdi-calendar-check-outline"></i> Review <%= chosen %> first
+                    </a>
+                <% } else if (!readOnly) { %>
+                    <span style="font-size:0.78rem;color:var(--text-muted)">
+                        <span id="ratedCount">0</span> of <%= skills.length %> attributes rated — unrated attributes are left out of the total.
+                        Training gaps save with the assessment.
+                    </span>
+                    <a class="rp-btn-cancel" href="/role-profiles/<%= profile.id %>">Cancel</a>
+                    <button type="submit" class="rp-btn-save"><i class="mdi mdi-content-save-outline"></i> <%= existing ? 'Save correction' : 'Save assessment' %></button>
+                <% } else { %>
+                    <span style="font-size:0.78rem;color:var(--text-muted)">
+                        <% if (!yearOpen) { %>
+                            <i class="mdi mdi-lock-outline"></i> <%= chosen %> is closed. Only <%= current %> and <%= previous %> can be entered or corrected.
+                        <% } else if (isAuthor && existing) { %>
+                            <i class="mdi mdi-lock-check-outline"></i> This assessment is complete for <%= chosen %> and cannot be changed.
+                            Choose the next financial year above to assess again.
+                        <% } else { %>
+                            <i class="mdi mdi-lock-outline"></i> Only the RP Creator who wrote this profile can change the ratings.
+                        <% } %>
+                    </span>
+                <% } %>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+$(function () {
+    var MAX_RATING = 4;
+    function fmt(n) { var r = Math.round(n * 100) / 100; return (r % 1 === 0) ? r.toString() : r.toFixed(2).replace(/0$/, ''); }
+
+    function recalc() {
+        var total = 0, weightSum = 0, rated = 0;
+        $('.js-rating').each(function () {
+            var $row = $(this).closest('tr');
+            var weight = parseFloat($row.find('.js-weight').data('weight')) || 0;
+            var rating = parseFloat($(this).val());
+            var $score = $row.find('.js-score');
+            $(this).toggleClass('unrated', isNaN(rating));
+            if (isNaN(rating)) { $score.text('0').addClass('zero'); return; }
+            var score = weight * rating;
+            $score.text(fmt(score)).removeClass('zero');
+            total += score; weightSum += weight; rated++;   // only rated lines count toward the max
+        });
+        var max = weightSum * MAX_RATING;
+        var pct = max > 0 ? (total / max * 100) : 0;
+        $('#totalScore, #grandTotal').text(fmt(total));
+        $('#maxScore, #grandMax').text(fmt(max));
+        $('#weightSum').text(fmt(weightSum));
+        $('#pct, #grandPct').text(max > 0 ? pct.toFixed(2).replace(/\.00$/, '') : '0');
+        $('#ratedCount').text(rated);
+    }
+
+    function recountGaps() {
+        // Read-only pages have no gap inputs; the count is already rendered from the data.
+        var $gaps = $('.js-gap');
+        if (!$gaps.length) return;
+
+        var n = 0;
+        $gaps.each(function () {
+            var filled = $.trim(this.value) !== '';
+            $(this).toggleClass('filled', filled);
+            if (filled) n++;
+        });
+        $('#gapCount').text(n);
+    }
+
+    // A rating of 2 or below needs a training gap noted, same rule the server enforces.
+    function markRequiredGaps() {
+        $('.js-rating').each(function () {
+            var $row = $(this).closest('tr');
+            var rating = parseFloat($(this).val());
+            var low = !isNaN(rating) && rating <= 2;
+            var $gap = $row.find('.js-gap');
+            var missing = low && $.trim($gap.val()) === '';
+            $gap.toggleClass('rp-gap-missing', missing).css('border-color', missing ? 'var(--danger, #c0392b)' : '');
+        });
+    }
+
+    $('.js-rating').on('change', function () { recalc(); markRequiredGaps(); });
+    $('.js-gap').on('input', function () { recountGaps(); markRequiredGaps(); });
+    recalc(); recountGaps(); markRequiredGaps();
+
+    $('form:has(.js-rating)').on('submit', function (e) {
+        var missing = [];
+        $('.js-rating').each(function () {
+            var $row = $(this).closest('tr');
+            var rating = parseFloat($(this).val());
+            if (!isNaN(rating) && rating <= 2 && $.trim($row.find('.js-gap').val()) === '') {
+                missing.push($.trim($row.find('.rp-skill-text').first().text()));
+            }
+        });
+        if (missing.length) {
+            e.preventDefault();
+            window.alert('A rating of 2 or below needs a training gap noted:\n\n' + missing.join('\n'));
+        }
+    });
+});
+</script>

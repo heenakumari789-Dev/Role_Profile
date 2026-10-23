@@ -1,0 +1,166 @@
+<%
+  const statusIcons = {
+    draft: 'mdi-content-save-outline', pending_sevak: 'mdi-clock-outline',
+    pending_admin: 'mdi-clock-fast', approved: 'mdi-check-circle-outline',
+    rejected: 'mdi-close-circle-outline'
+  };
+  const short = (s, n) => { s = String(s || '').trim(); return s.length > n ? s.slice(0, n) + '…' : s; };
+%>
+<div class="rp-card">
+    <div class="rp-card-header">
+        <div class="rp-card-header-left">
+            <div class="rp-card-header-icon"><i class="mdi mdi-file-document-edit-outline"></i></div>
+            <div>
+                <div class="rp-card-title">Role Profiles</div>
+                <div class="rp-card-subtitle">Written against a designation, so they outlast any one member</div>
+            </div>
+        </div>
+    </div>
+    <div class="rp-card-body">
+        <% if (canCreate) { %>
+            <div class="rp-action-bar">
+                <a class="rp-btn-primary" href="/role-profiles/create"><i class="mdi mdi-plus"></i> Create Role Profile</a>
+            </div>
+        <% } %>
+
+        <form method="get" class="rp-year-bar">
+            <label for="fy"><i class="mdi mdi-calendar-range-outline"></i> Financial year</label>
+            <select name="fy" id="fy" onchange="this.form.submit()">
+                <% years.forEach(y => { %>
+                    <option value="<%= y.year %>" <%= y.year === chosen ? 'selected' : '' %>><%= y.year %><%= y.is_current ? ' — current' : '' %></option>
+                <% }) %>
+            </select>
+            <span class="rp-year-note">
+                <i class="mdi mdi-information-outline"></i>
+                Showing where each role profile stands in <strong><%= chosen %></strong>
+                <% if (!fyOpen) { %> — this year is closed, so nothing can be reviewed or assessed in it<% } %>
+            </span>
+        </form>
+
+        <% if (dueCount) { %>
+            <div class="rp-inbox rp-inbox-due">
+                <i class="mdi mdi-calendar-alert"></i>
+                <div>
+                    <strong><%= dueCount %> role profile<%= dueCount === 1 ? '' : 's' %> still need<%= dueCount === 1 ? 's' : '' %> the <%= chosen %> review.</strong><br>
+                    Confirm it stands as it is, or update it — nobody can be assessed for <%= chosen %> until then.
+                </div>
+            </div>
+        <% } %>
+
+        <% if (awaiting.length) { %>
+            <div class="rp-inbox">
+                <i class="mdi mdi-inbox-arrow-down-outline"></i>
+                <div>
+                    <strong><%= awaiting.length %> role profile<%= awaiting.length === 1 ? '' : 's' %> waiting on you.</strong><br>
+                    <% awaiting.forEach(item => { %>
+                        <a href="/role-profiles/<%= item.id %>"><%= item.designation_name %></a>
+                        <span style="color:var(--text-muted)">from <%= personName(item.created_by, item.created_by_name) %></span><br>
+                    <% }) %>
+                </div>
+            </div>
+        <% } %>
+
+        <% if (!profiles.length) { %>
+            <div class="rp-empty">
+                <i class="mdi mdi-file-document-outline"></i>
+                <p>
+                    <% if (canCreate) { %>
+                        No role profiles yet.<br>Create one against a designation your members hold — it stays valid even when people move on.
+                    <% } else { %>
+                        No role profile applies to you yet.<br>One will appear here once your RP Creator writes it and it has been approved.
+                    <% } %>
+                </p>
+            </div>
+        <% } else { %>
+            <div class="table-responsive">
+                <table class="display" id="profileTable" style="width:100%">
+                    <thead>
+                        <tr><th>Designation</th><th>Sangh</th><th>Created by</th><th>Status</th><th><%= chosen %></th><th>Created</th><th>Action</th></tr>
+                    </thead>
+                    <tbody>
+                    <% profiles.forEach(p => { const status = p.status; %>
+                        <tr>
+                            <td>
+                                <span class="rp-desig-cell">
+                                    <span class="emp-name"><%= p.designation_name %></span>
+                                    <% if (String(p.mission || '').trim()) { %><span class="sub"><%= short(p.mission, 70) %></span><% } %>
+                                </span>
+                            </td>
+                            <td><span class="emp-sangh"><%= p.sangh_name || '—' %></span><span class="rp-prog rp-prog-<%= p.program === 'ldp' ? 'ldp' : 'psp' %>"><%= p.program === 'ldp' ? 'LDP' : 'PSP' %></span></td>
+                            <td><span class="emp-sangh"><%= personName(p.created_by, p.created_by_name) %></span></td>
+                            <td>
+                                <span class="rp-status rp-status-<%= status %>">
+                                    <i class="mdi <%= statusIcons[status] || 'mdi-help-circle-outline' %>"></i>
+                                    <%= statusText(p) %>
+                                </span>
+                                <% if (status === S.PENDING_SEVAK) { %><div class="rp-sub">with <%= p.rp_approver_name || 'RP Approver' %></div>
+                                <% } else if (status === S.PENDING_ADMIN) { %><div class="rp-sub">with <%= finalApproverLabel(p) %></div>
+                                <% } else if (status === S.DRAFT) { %><div class="rp-sub">not submitted</div>
+                                <% } else if (status === S.REJECTED) { %><div class="rp-sub">back with author</div><% } %>
+                            </td>
+                            <td>
+                                <% if (p.fy_review) { %>
+                                    <span class="rp-review-tag <%= p.fy_review.outcome %>">
+                                        <i class="mdi <%= p.fy_review.outcome === 'unchanged' ? 'mdi-check' : 'mdi-pencil-outline' %>"></i>
+                                        v<%= p.fy_version %> · <%= outcomeLabels[p.fy_review.outcome] || p.fy_review.outcome %>
+                                    </span>
+                                    <div class="rp-sub">
+                                        <%= p.fy_assessments %> assessment<%= p.fy_assessments === 1 ? '' : 's' %>
+                                    </div>
+                                <% } else if (p.fy_due) { %>
+                                    <span class="rp-review-tag pending"><i class="mdi mdi-calendar-alert"></i> Review due</span>
+                                    <div class="rp-sub">would be v<%= p.fy_would_use %></div>
+                                <% } else if (p.fy_predates) { %>
+                                    <span class="rp-none">did not exist yet</span>
+                                <% } else if (p.fy_would_use && !fyOpen) { %>
+                                    <span class="rp-none">not reviewed</span>
+                                    <div class="rp-sub">year closed</div>
+                                <% } else { %>
+                                    <span class="rp-none">not yet approved</span>
+                                <% } %>
+                            </td>
+                            <td data-order="<%= p.created_at %>">
+                                <span class="emp-sangh"><%= fmtDate(p.created_at) %></span>
+                            </td>
+                            <td>
+                                <div class="rp-actions">
+                                    <a class="rp-edit-btn" href="/role-profiles/<%= p.id %>"><i class="mdi mdi-eye-outline"></i> View</a>
+                                    <% if (p.fy_can_review && fyOpen) { %>
+                                        <a class="rp-edit-btn rp-edit-btn-due" href="/role-profiles/<%= p.id %>?tab=versions"><i class="mdi mdi-calendar-check-outline"></i> Review <%= chosen %></a>
+                                    <% } else if (status === S.APPROVED && p.created_by === me.code) { %>
+                                        <a class="rp-edit-btn" href="/assessments?fy=<%= encodeURIComponent(chosen) %>&profile=<%= p.id %>"><i class="mdi mdi-clipboard-edit-outline"></i> Assess</a>
+                                    <% } %>
+                                    <% if (p.can_edit) { %>
+                                        <a class="rp-edit-btn" href="/role-profiles/<%= p.id %>/edit"><i class="mdi mdi-pencil-outline"></i> Edit</a>
+                                    <% } %>
+                                    <% if (canCreate) { %>
+                                        <a class="rp-edit-btn" href="/role-profiles/<%= p.id %>/clone" title="Start a new role profile from this one"><i class="mdi mdi-content-copy"></i> Clone</a>
+                                    <% } %>
+                                </div>
+                            </td>
+                        </tr>
+                    <% }) %>
+                    </tbody>
+                </table>
+            </div>
+        <% } %>
+    </div>
+</div>
+
+<% if (profiles.length) { %>
+<script>
+$(function () {
+    new DataTable('#profileTable', {
+        pageLength: 25, order: [[5, 'desc']],
+        columnDefs: [{ targets: [6], orderable: false, searchable: false }],
+        language: {
+            search: '<i class="mdi mdi-magnify"></i>', searchPlaceholder: 'Search role profiles...',
+            lengthMenu: 'Show _MENU_ entries', info: 'Showing _START_ to _END_ of _TOTAL_ role profiles',
+            zeroRecords: 'No role profiles match your search',
+            paginate: { first: '<i class="mdi mdi-chevron-double-left"></i>', last: '<i class="mdi mdi-chevron-double-right"></i>',
+                        previous: '<i class="mdi mdi-chevron-left"></i>', next: '<i class="mdi mdi-chevron-right"></i>' }
+        }
+    });
+});
+</script>
+<% } %>

@@ -1,0 +1,631 @@
+<%
+  // A clone arrives with the source's content but no designation, so it saves as new.
+  const cloning = (typeof cloneFrom !== 'undefined') && !!cloneFrom;
+  const importedFrom = (typeof imported !== 'undefined') ? imported : null;
+  const seeded = cloning || !!importedFrom;
+  const isEdit = !!profile && !seeded;
+  const seed = profile || null;
+  const formUrl = isEdit ? `/role-profiles/${profile.id}/update` : '/role-profiles/store';
+  const fromRecruit = (typeof prefill !== 'undefined') ? prefill : null;
+  const pending = (typeof pendingEdit !== 'undefined') ? pendingEdit : null;
+  const lockedFields = !!(pending && pending.lockedFields);
+  const oldSangh = seed ? (seed.sangh_code || '') : (fromRecruit ? fromRecruit.sangh_code : '');
+  const oldDesig = seed && seed.designation_name ? seed.designation_name : (fromRecruit ? fromRecruit.designation : '');
+  const oldMission = seed ? (seed.mission || '') : '';
+  const seedOutcomes = seed ? (seed.outcomes || []) : [];
+  const seedAttributes = seed ? (seed.attributes || []).map(a => ({
+      attribute: a.attribute, assessment: a.assessment, weight: a.attribute_weight,
+      skills: a.skills.map(s => ({ skill: s.tech_skill, weight: s.tech_weight }))
+  })) : [];
+%>
+<div class="rp-card">
+    <div class="rp-card-header">
+        <div class="rp-card-header-left">
+            <div class="rp-card-header-icon"><i class="mdi mdi-file-document-edit-outline"></i></div>
+            <div>
+                <div class="rp-card-title"><%= importedFrom ? 'Imported from Excel' : (cloning ? 'Clone Role Profile' : (pending ? 'Edit Role Profile' : (isEdit ? 'Edit Draft' : 'Create Role Profile'))) %></div>
+                <div class="rp-card-subtitle">Against a designation — it stays valid as members join or leave</div>
+            </div>
+        </div>
+    </div>
+    <div class="rp-card-body">
+            <div class="rp-form-section rp-step-one" id="sanghDesignation">
+                <h3><i class="mdi mdi-badge-account-outline"></i> Sangh &amp; Designation <span class="rp-required">required</span></h3>
+                <div class="rp-form-hint">
+                    <% if (lockedFields) { %>
+                        Fixed while the profile awaits approval.
+                    <% } else { %>
+                        Start here — nothing can be saved, read from Excel or copied until both are chosen.
+                        Pick the sangh first; the designation list then shows only that sangh's designations.
+                        The profile applies to that designation <em>within that sangh</em>.
+                    <% } %>
+                </div>
+                <div class="rp-grid-2">
+                    <div class="rp-field">
+                        <label for="sangh_code">Sangh <span class="rp-required-star">*</span></label>
+                        <select class="rp-select" name="sangh_code" id="sangh_code" form="profileForm" required<%= lockedFields ? ' disabled' : '' %>>
+                            <% const progOf = (s) => s.program === 'ldp' ? 'LDP' : 'PSP'; %>
+                            <% if (sanghs.length === 1) { %>
+                                <option value="<%= sanghs[0].sangh_code %>" selected><%= sanghs[0].sangh_name %> (<%= sanghs[0].members %> members) — <%= progOf(sanghs[0]) %></option>
+                            <% } else { %>
+                                <option value="">— Choose a sangh —</option>
+                                <% [['psp', 'PSP sanghs'], ['ldp', 'LDP — Sanghrakshak & Seva Sangh']].forEach(([prog, groupLabel]) => {
+                                     const group = sanghs.filter(s => (s.program === 'ldp' ? 'ldp' : 'psp') === prog);
+                                     if (!group.length) return; %>
+                                    <optgroup label="<%= groupLabel %>">
+                                    <% group.forEach(s => { %>
+                                        <option value="<%= s.sangh_code %>" <%= oldSangh === s.sangh_code ? 'selected' : '' %>>
+                                            <%= s.sangh_name %> (<%= s.members %> members)
+                                        </option>
+                                    <% }) %>
+                                    </optgroup>
+                                <% }) %>
+                            <% } %>
+                        </select>
+                    </div>
+                    <div class="rp-field">
+                        <label for="designation_name">Designation <span class="rp-required-star">*</span></label>
+                        <select class="rp-select" name="designation_name" id="designation_name" form="profileForm" required disabled>
+                            <option value="">— Choose a sangh first —</option>
+                        </select>
+                        <p class="rp-field-hint" id="designationHint" style="display:none"></p>
+                        <% if (!lockedFields) { %>
+                            <div class="rp-new-desig">
+                                <button type="button" class="rp-btn-add" id="newDesigToggle"><i class="mdi mdi-plus"></i> New designation</button>
+                                <div class="rp-repeat-row" id="newDesigForm" style="display:none;margin-top:8px">
+                                    <input type="text" class="rp-input" id="newDesigName" maxlength="100" placeholder="e.g. SAP Security Head">
+                                    <button type="button" class="rp-btn-clone" id="newDesigSave"><i class="mdi mdi-check"></i> Add to this sangh</button>
+                                </div>
+                                <p class="rp-field-hint" id="newDesigMsg" style="display:none"></p>
+                            </div>
+                        <% } %>
+                    </div>
+                </div>
+            </div>
+
+
+        <% if (pending) { %>
+            <div class="rp-version-banner">
+                <i class="mdi mdi-pencil-clock-outline"></i>
+                <div>
+                    This role profile is <strong>awaiting <%= pending.label %></strong>. Saving your changes keeps it
+                    there — nothing is approved or sent back, and the others involved are told it changed.
+                    <% if (lockedFields) { %>
+                        You can change the mission, key outcomes, skills, attributes, their weightage and the assessment mechanism; the sangh and designation stay as submitted.
+                    <% } %>
+                </div>
+            </div>
+        <% } %>
+
+        <% if (typeof revision !== 'undefined' && revision && inForce) { %>
+            <div class="rp-version-banner due">
+                <i class="mdi mdi-source-branch"></i>
+                <div>
+                    This is the <strong><%= fyNow %> revision</strong> of a role profile that is already approved.
+                    Saving sends it for approval again; <strong>version <%= inForce.version_no %></strong> stays in
+                    force until then, and every assessment already written against it keeps its original wording.
+                    Approval creates version <%= inForce.version_no + 1 %>.
+                </div>
+            </div>
+        <% } %>
+
+        <% if (cloning) { %>
+            <div class="rp-version-banner">
+                <i class="mdi mdi-content-copy"></i>
+                <div>
+                    Copied from <strong><%= cloneFrom.designation %></strong> (<%= cloneFrom.sangh %>).
+                    Everything below is a copy you can change — pick the designation this one is for,
+                    then adjust the skills and weights. The original is untouched.
+                </div>
+            </div>
+        <% } %>
+
+        <% if (fromRecruit) { %>
+            <div class="rp-version-banner<%= fromRecruit.recognised ? '' : ' due' %>">
+                <i class="mdi <%= fromRecruit.recognised ? 'mdi-link-variant' : 'mdi-alert-outline' %>"></i>
+                <div>
+                    <% if (fromRecruit.recognised) { %>
+                        Opened for <strong><%= fromRecruit.designation %></strong><% if (fromRecruit.sangh_name) { %>
+                        in <%= fromRecruit.sangh_name %><% } %>, already chosen above.
+                        Once this is approved it becomes the role profile that designation links to.
+                    <% } else { %>
+                        <strong>"<%= fromRecruit.designation %>" is not a designation any active member holds<% if (fromRecruit.sangh_code) { %>
+                        in <%= fromRecruit.sangh_code %><% } %>.</strong>
+                        Check the spelling, or pick the right one above — a role profile can only be written
+                        against a designation somebody actually holds.
+                    <% } %>
+                </div>
+            </div>
+        <% } %>
+
+        <% if (importedFrom) { %>
+            <div class="rp-import-summary">
+                <div class="rp-import-head">
+                    <i class="mdi mdi-file-excel-outline"></i>
+                    <div>
+                        <strong>Read from <%= importedFrom.file %></strong>
+                        <div class="rp-sub">
+                            Sheet "<%= importedFrom.sheet %>"<% if (importedFrom.designation) { %>,
+                            written for "<%= importedFrom.designation %>"<% } %> —
+                            <%= importedFrom.attributes %> skills, <%= importedFrom.skills %> attributes,
+                            <%= importedFrom.outcomes %> key outcome<%= importedFrom.outcomes === 1 ? '' : 's' %>.
+                            Check it below and save.
+                        </div>
+                    </div>
+                </div>
+                <% if (importedFrom.warnings.length) { %>
+                    <ul class="rp-import-warnings">
+                        <% importedFrom.warnings.forEach(w => { %><li><%= w %></li><% }) %>
+                    </ul>
+                <% } %>
+                <% if (importedFrom.sheets.length > 1) { %>
+                    <form method="post" action="/role-profiles/import" enctype="multipart/form-data" class="rp-import-again js-needs-designation">
+                        <input type="hidden" name="csrf_test_name" value="<%= csrfToken %>">
+                        <input type="hidden" name="sangh_code" class="js-carry-sangh">
+                        <input type="hidden" name="designation_name" class="js-carry-designation">
+                        <span class="rp-sub">That file has <%= importedFrom.sheets.length %> sheets. To use a different one, choose it and upload again:</span>
+                        <select name="sheet" class="rp-select">
+                            <% importedFrom.sheets.forEach(sh => { %>
+                                <option value="<%= sh %>" <%= sh === importedFrom.sheet ? 'selected' : '' %>><%= sh %></option>
+                            <% }) %>
+                        </select>
+                        <input type="file" name="sheet" accept=".xlsx" class="rp-file" required>
+                        <button type="submit" class="rp-btn-clone"><i class="mdi mdi-upload"></i> Read again</button>
+                    </form>
+                <% } %>
+            </div>
+        <% } %>
+
+        <% if (!isEdit && !seeded) { %>
+            <div class="rp-clone-start">
+                <div class="rp-clone-head">
+                    <i class="mdi mdi-file-excel-outline"></i>
+                    <div>
+                        <strong>Fill it in from an Excel sheet</strong>
+                        <div class="rp-sub">Reads the Pakka format — mission, key outcomes, and the
+                        SN / Skill / Attributes / Weightage / Sub-Weightage table. Nothing is
+                        saved until you submit it yourself. Choose the sangh and designation above first.</div>
+                    </div>
+                </div>
+                <form method="post" action="/role-profiles/import" enctype="multipart/form-data" class="rp-clone-pick js-needs-designation">
+                    <input type="hidden" name="csrf_test_name" value="<%= csrfToken %>">
+                    <input type="hidden" name="sangh_code" class="js-carry-sangh">
+                    <input type="hidden" name="designation_name" class="js-carry-designation">
+                    <input type="file" name="sheet" accept=".xlsx" class="rp-file" required>
+                    <button type="submit" class="rp-btn-clone js-needs-designation-btn"><i class="mdi mdi-upload"></i> Read the sheet</button>
+                </form>
+            </div>
+        <% } %>
+
+        <% if (!isEdit && !seeded && clonable.length) { %>
+            <div class="rp-clone-start">
+                <div class="rp-clone-head">
+                    <i class="mdi mdi-content-copy"></i>
+                    <div>
+                        <strong>Start from an existing role profile</strong>
+                        <div class="rp-sub">Copies its mission, outcomes, skills and weights so you can
+                        adjust them for this designation. The one you copy from is not changed.</div>
+                    </div>
+                </div>
+                <div class="rp-clone-pick">
+                    <select id="cloneSource" class="rp-select">
+                        <option value="">— Start from a blank form —</option>
+                        <% clonable.forEach(c => { %>
+                            <option value="<%= c.id %>"><%= c.designation %> · <%= c.sangh %> (<%= (c.label || statusLabels[c.status] || c.status).toLowerCase() %>, by <%= c.by %>)</option>
+                        <% }) %>
+                    </select>
+                    <button type="button" class="rp-btn-clone" id="cloneGo" disabled>
+                        <i class="mdi mdi-content-copy"></i> Use as a starting point
+                    </button>
+                </div>
+            </div>
+        <% } %>
+
+        <% if (typeof takenCount !== 'undefined' && takenCount) { %>
+            <div class="rp-version-banner">
+                <i class="mdi mdi-information-outline"></i>
+                <div>
+                    <%= takenCount %> designation<%= takenCount === 1 ? '' : 's' %> already
+                    ha<%= takenCount === 1 ? 's' : 've' %> a role profile and cannot be picked again —
+                    a designation can only have one. <%= freeCount %> still free.
+                </div>
+            </div>
+        <% } %>
+
+        <% if (!pending) { %>
+        <div class="rp-route-note">
+            <i class="mdi mdi-information-outline"></i>
+            <div>
+                <% if (!approver.code && (me.isAdmin || me.isLdpAdmin)) { %>
+                    You give final approval yourself — as <%= [me.isAdmin && 'PSP Approver (PSP sanghs)', me.isLdpAdmin && 'LDP Admin (Sanghrakshak / Seva Sangh)'].filter(Boolean).join(' and ') %> —
+                    so a profile you submit comes straight back to you to approve. Once approved, you assign the members it is for.
+                <% } else if (approver.code) { %>
+                    This goes to <strong><%= approver.name %></strong> (your RP Approver) for approval,
+                    then to the PSP Approver — or the LDP Admin, for an LDP profile (Sanghrakshak / Seva Sangh).
+                    Once approved, it applies to the members the admin assigns to it.
+                <% } else { %>
+                    You have no separate RP Approver on record, so this goes straight to the
+                    <strong>PSP Approver</strong> — or the <strong>LDP Admin</strong>, for an LDP profile — for approval.
+                    Nobody approves their own submission.
+                <% } %>
+            </div>
+        </div>
+        <% } %>
+
+        <form method="post" action="<%= formUrl %>" id="profileForm">
+            <input type="hidden" name="csrf_test_name" value="<%= csrfToken %>">
+
+            <div class="rp-form-section">
+                <h3><i class="mdi mdi-target"></i> Mission</h3>
+                <div class="rp-form-hint">One or two sentences on why this role exists.</div>
+                <textarea class="rp-textarea" name="mission" placeholder="e.g. Build financial strength through fiscal discipline."><%= oldMission %></textarea>
+            </div>
+
+            <div class="rp-form-section">
+                <h3><i class="mdi mdi-flag-checkered"></i> Key Outcomes</h3>
+                <div class="rp-form-hint" id="outcomeHint">The measurable results this role is accountable for — up to <%= maxOutcomes %>.</div>
+                <div id="outcomeList">
+                    <div class="rp-repeat-row">
+                        <input type="text" class="rp-input" name="outcomes" placeholder="e.g. 100% data driven decision making">
+                        <button type="button" class="rp-btn-remove js-remove-outcome"><i class="mdi mdi-close"></i></button>
+                    </div>
+                </div>
+                <button type="button" class="rp-btn-add" id="addOutcome"><i class="mdi mdi-plus"></i> Add outcome</button>
+                <span class="rp-limit-note" id="outcomeCount"></span>
+            </div>
+
+            <div class="rp-form-section">
+                <h3><i class="mdi mdi-format-list-numbered"></i> Skills</h3>
+                <div class="rp-form-hint">
+                    Each skill carries its weight and the attributes behind it. Weights are percentages.
+                    Up to <%= maxAttributes %> skills, each with up to <%= maxSkills %> attributes.
+                    <strong>A skill's attribute weights must add up to that skill's own weight.</strong>
+                </div>
+                <div id="attrList"></div>
+                <button type="button" class="rp-btn-add" id="addAttr"><i class="mdi mdi-plus"></i> Add skill</button>
+                <span class="rp-limit-note" id="attrCount"></span>
+            </div>
+
+            <div class="rp-form-foot">
+                <div class="rp-totals"><span id="totalsLine"></span></div>
+                <% if (pending) { %>
+                    <a class="rp-btn-cancel" href="/role-profiles/<%= profile.id %>">Cancel</a>
+                    <button type="submit" name="action" value="save" class="rp-btn-submit" id="btnSubmit" disabled>
+                        <i class="mdi mdi-content-save-outline"></i> Save changes
+                    </button>
+                <% } else { %>
+                <a class="rp-btn-cancel" href="/role-profiles">Cancel</a>
+                <button type="submit" name="action" value="draft" class="rp-btn-draft" id="btnDraft" disabled>
+                    <i class="mdi mdi-content-save-outline"></i> Save as draft
+                </button>
+                <button type="submit" name="action" value="submit" class="rp-btn-submit" id="btnSubmit" disabled>
+                    <i class="mdi mdi-send"></i> Submit for approval
+                </button>
+                <% } %>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+$(function () {
+    var attrIndex = 0;
+    var MAX_ATTRS = <%= maxAttributes %>, MAX_SKILLS = <%= maxSkills %>,
+        MAX_OUTCOMES = <%= maxOutcomes %>, TOTAL_WEIGHT = <%= totalWeight %>;
+    var MIN_OUTCOMES_LDP = <%= minOutcomesLdp %>, MAX_OUTCOMES_LDP = <%= maxOutcomesLdp %>;
+    var BY_SANGH = <%- JSON.stringify(bySangh) %>;
+    var currentProgram = 'psp';
+    var LOCKED_FIELDS = <%- JSON.stringify(lockedFields) %>;
+    var OLD_DESIGNATION = <%- JSON.stringify(oldDesig) %>;
+    var STATUS_LABELS = <%- JSON.stringify(statusLabels) %>;
+    var SEED_OUTCOMES = <%- JSON.stringify(seedOutcomes) %>;
+    var SEED_ATTRIBUTES = <%- JSON.stringify(seedAttributes) %>;
+
+    var $cloneSource = $('#cloneSource');
+    if ($cloneSource.length) {
+        $cloneSource.on('change', refreshStartButtons);
+        $('#cloneGo').on('click', function () {
+            var id = $cloneSource.val();
+            // Carry the sangh and designation already chosen, so the clone form opens on them.
+            if (id && designationChosen()) window.location.href = '/role-profiles/' + id + '/clone?sangh='
+                + encodeURIComponent($('#sangh_code').val() || '')
+                + '&designation=' + encodeURIComponent($('#designation_name').val() || '');
+        });
+    }
+
+    /** Sangh and designation are the first, mandatory step. */
+    function designationChosen() {
+        return !!$('#sangh_code').val() && !!$('#designation_name').val();
+    }
+    function refreshStartButtons() {
+        var ok = designationChosen();
+        $('#cloneGo').prop('disabled', !ok || !$('#cloneSource').val());
+        $('.js-needs-designation-btn').prop('disabled', !ok);
+        $('.js-carry-sangh').val($('#sangh_code').val() || '');
+        $('.js-carry-designation').val($('#designation_name').val() || '');
+        $('#sanghDesignation').toggleClass('rp-step-missing', !ok);
+    }
+    $('.js-needs-designation').on('submit', function (e) {
+        refreshStartButtons();
+        if (!designationChosen()) {
+            e.preventDefault();
+            $('html, body').animate({ scrollTop: $('#sanghDesignation').offset().top - 90 }, 200);
+        }
+    });
+
+    function fillDesignations() {
+        var sangh = $('#sangh_code').val();
+        var $sel = $('#designation_name').empty();
+        if (!sangh) {
+            $sel.append($('<option>', { value: '', text: '— Choose a sangh first —' })).prop('disabled', true);
+            return;
+        }
+        var list = BY_SANGH[sangh] || [];
+        $sel.prop('disabled', false).append($('<option>', { value: '', text: '— Choose a designation —' }));
+
+        var free = list.filter(function (d) { return !d.taken; });
+        var used = list.filter(function (d) { return d.taken; });
+
+        function label(d) {
+            return d.designation;
+        }
+        free.forEach(function (d) {
+            $sel.append($('<option>', { value: d.designation, text: label(d), 'data-program': d.program || 'psp' }));
+        });
+        // Kept visible, but unpickable: a designation can only carry one role profile.
+        if (used.length) {
+            var $g = $('<optgroup>', { label: 'Already have a role profile' });
+            used.forEach(function (d) {
+                $g.append($('<option>', {
+                    value: d.designation, disabled: true,
+                    text: label(d) + ' — ' + (d.taken.label || STATUS_LABELS[d.taken.status]) + ', by ' + d.taken.by
+                }));
+            });
+            $sel.append($g);
+        }
+        $('#designationHint').toggle(used.length > 0)
+            .text(used.length + ' designation' + (used.length === 1 ? '' : 's') + ' in this sangh already '
+                + (used.length === 1 ? 'has' : 'have') + ' a role profile, so ' + (used.length === 1 ? 'it is' : 'they are')
+                + ' greyed out. To change one, open it and revise it — or clone it onto a free designation.');
+
+        if (OLD_DESIGNATION) $sel.val(OLD_DESIGNATION);
+        if (LOCKED_FIELDS) $sel.prop('disabled', true);
+        applyProgram();
+    }
+    $('#sangh_code').on('change', fillDesignations);
+
+    // A designation nobody in the sangh has held yet can be added here, then picked at once.
+    function newDesigMessage(text, isError) {
+        $('#newDesigMsg').text(text).css('color', isError ? 'var(--danger, #c0392b)' : '').show();
+    }
+    $('#newDesigToggle').on('click', function () {
+        $('#newDesigForm').toggle();
+        $('#newDesigName').trigger('focus');
+    });
+    $('#newDesigName').on('keydown', function (e) {
+        if (e.key === 'Enter') { e.preventDefault(); $('#newDesigSave').trigger('click'); }
+    });
+    $('#newDesigSave').on('click', function () {
+        var sangh = $('#sangh_code').val();
+        var name = $.trim($('#newDesigName').val());
+        if (!sangh) { newDesigMessage('Choose the sangh first — the designation is added to that sangh.', true); return; }
+        if (name.length < 2) { newDesigMessage('Type the designation name.', true); return; }
+
+        var $btn = $(this).prop('disabled', true);
+        $.post('/role-profiles/designations', { sangh_code: sangh, designation_name: name, csrf_test_name: <%- JSON.stringify(csrfToken) %> })
+            .done(function (res) {
+                var list = BY_SANGH[sangh] = BY_SANGH[sangh] || [];
+                var exists = list.some(function (d) { return d.designation.toLowerCase() === res.designation.toLowerCase(); });
+                if (!exists) {
+                    list.push({ designation: res.designation, program: res.program, taken: null });
+                    list.sort(function (a, b) { return a.designation.localeCompare(b.designation, undefined, { sensitivity: 'base' }); });
+                }
+                OLD_DESIGNATION = res.designation;
+                fillDesignations();
+                if ($('#designation_name').val() === res.designation) {
+                    newDesigMessage(res.message, false);
+                } else {
+                    newDesigMessage('"' + res.designation + '" already has a role profile in this sangh, so it cannot be picked.', true);
+                }
+                $('#newDesigName').val('');
+                $('#newDesigForm').hide();
+            })
+            .fail(function (xhr) {
+                newDesigMessage((xhr.responseJSON && xhr.responseJSON.message) || 'Could not add the designation. Please try again.', true);
+            })
+            .always(function () { $btn.prop('disabled', false); });
+    });
+
+    /** Which programme the chosen designation belongs to — drives outcome bounds and the
+     *  Assessment Mechanism field, which only LDP (sevak/sanghrakshak) profiles use. */
+    function applyProgram() {
+        var $opt = $('#designation_name option:selected');
+        currentProgram = $opt.data('program') || 'psp';
+        var isLdp = currentProgram === 'ldp';
+
+        if (isLdp) {
+            $('#outcomeHint').text('The measurable results this role is accountable for — '
+                + MIN_OUTCOMES_LDP + ' to ' + MAX_OUTCOMES_LDP + ' for an LDP role profile.');
+        } else {
+            $('#outcomeHint').text('The measurable results this role is accountable for — up to ' + MAX_OUTCOMES + '.');
+        }
+        $('.js-assessment-wrap').toggle(isLdp);
+        refreshOutcomeLimit();
+        recalcWeights();
+        refreshStartButtons();
+    }
+    $('#designation_name').on('change', applyProgram);
+    $('#sangh_code, #designation_name').on('change', refreshStartButtons);
+    fillDesignations();
+
+    function skillRow(ai) {
+        return '<div class="rp-skill-row">'
+             + '<input type="text" class="rp-input" name="tech_skill[' + ai + '][]" placeholder="Attribute">'
+             + '<input type="number" step="0.5" min="0" class="rp-input" name="tech_weight[' + ai + '][]" placeholder="Wt">'
+             + '<button type="button" class="rp-btn-remove js-remove-skill"><i class="mdi mdi-close"></i></button>'
+             + '</div>';
+    }
+    function attrBlock(ai) {
+        return '<div class="rp-attr-block" data-index="' + ai + '">'
+             + '  <div class="rp-attr-head"><span class="rp-attr-no">Skill <span class="js-attr-no"></span></span>'
+             + '    <button type="button" class="rp-btn-remove js-remove-attr"><i class="mdi mdi-delete-outline"></i> Remove</button></div>'
+             + '  <div class="rp-field"><label>Skill</label>'
+             + '    <input type="text" class="rp-input" name="attribute[' + ai + ']" placeholder="e.g. Digital Transformation Leadership"></div>'
+             + '  <div class="rp-weight-field"><div class="rp-field"><label>Weight</label>'
+             + '    <input type="number" step="0.5" min="0" class="rp-input js-attr-weight" name="attribute_weight[' + ai + ']" placeholder="e.g. 15"></div></div>'
+             + '  <div class="rp-mini-label rp-skill-head">Attributes <span style="text-transform:none;font-weight:600">&nbsp;(max ' + MAX_SKILLS + ')</span>'
+             + '    <span class="rp-balance idle js-balance"></span></div>'
+             + '  <div class="js-skill-list">' + skillRow(ai) + '</div>'
+             + '  <button type="button" class="rp-btn-add js-add-skill"><i class="mdi mdi-plus"></i> Add attribute</button>'
+             + '  <div class="rp-field js-assessment-wrap" style="' + (currentProgram === 'ldp' ? '' : 'display:none') + '">'
+             + '    <label>Assessment Mechanism</label>'
+             + '    <input type="text" class="rp-input js-assessment" name="assessment[' + ai + ']" placeholder="How this skill is assessed">'
+             + '  </div>'
+             + '</div>';
+    }
+    function renumber() { $('#attrList .rp-attr-block').each(function (i) { $(this).find('.js-attr-no').first().text(i + 1); }); }
+    function fmt(n) { return Math.round(n * 100) / 100; }
+
+    function refreshLimits() {
+        var count = $('#attrList .rp-attr-block').length, atMax = count >= MAX_ATTRS;
+        $('#addAttr').prop('disabled', atMax);
+        $('#attrCount').text(count + ' of ' + MAX_ATTRS + ' skills' + (atMax ? ' — limit reached' : '')).toggleClass('at-max', atMax);
+        $('#attrList .rp-attr-block').each(function () {
+            $(this).find('.js-add-skill').prop('disabled', $(this).find('.rp-skill-row').length >= MAX_SKILLS);
+        });
+    }
+    function refreshOutcomeLimit() {
+        var max = currentProgram === 'ldp' ? MAX_OUTCOMES_LDP : MAX_OUTCOMES;
+        var count = $('#outcomeList .rp-repeat-row').length, atMax = count >= max;
+        $('#addOutcome').prop('disabled', atMax);
+        $('#outcomeCount').text(count + ' of ' + max + ' outcomes' + (atMax ? ' — limit reached' : '')).toggleClass('at-max', atMax);
+    }
+
+    /** Each skill's attribute weights must add up to the skill's own weight. */
+    function recalcBalance() {
+        var offBy = 0;
+        $('#attrList .rp-attr-block').each(function () {
+            var $block = $(this), $badge = $block.find('.js-balance');
+            var attrWt = parseFloat($block.find('.js-attr-weight').val());
+            var rows = $block.find('.rp-skill-row').filter(function () {
+                return $.trim($(this).find('input[type="text"]').val()) !== '' || $.trim($(this).find('input[type="number"]').val()) !== '';
+            });
+            if (rows.length === 0) { $badge.attr('class', 'rp-balance idle').empty(); return; }
+
+            var total = 0;
+            rows.each(function () { var v = parseFloat($(this).find('input[type="number"]').val()); if (!isNaN(v)) total += v; });
+
+            if (isNaN(attrWt)) {
+                offBy++;
+                $badge.attr('class', 'rp-balance off').html('<i class="mdi mdi-alert-outline"></i>Attributes total ' + fmt(total) + ' — set the skill weight');
+            } else if (Math.abs(total - attrWt) < 0.001) {
+                $badge.attr('class', 'rp-balance ok').html('<i class="mdi mdi-check-circle-outline"></i>Attributes total ' + fmt(total) + ' of ' + fmt(attrWt));
+            } else {
+                offBy++;
+                var diff = fmt(attrWt - total);
+                $badge.attr('class', 'rp-balance off').html('<i class="mdi mdi-alert-outline"></i>Attributes total ' + fmt(total) + ' of ' + fmt(attrWt)
+                    + ' (' + (diff > 0 ? diff + ' short' : Math.abs(diff) + ' over') + ')');
+            }
+        });
+        return offBy;
+    }
+
+    function recalcWeights() {
+        var total = 0;
+        $('.js-attr-weight').each(function () { var v = parseFloat($(this).val()); if (!isNaN(v)) total += v; });
+        var offBy = recalcBalance();
+        var totalOk = Math.abs(total - TOTAL_WEIGHT) < 0.001;
+        var named = $('input[name^="attribute["]').filter(function () { return $.trim(this.value) !== ''; }).length;
+        var namedOutcomes = $('#outcomeList input[name="outcomes"]').filter(function () { return $.trim(this.value) !== ''; }).length;
+        var outcomesOk = currentProgram !== 'ldp' || namedOutcomes >= MIN_OUTCOMES_LDP;
+        var desigOk = designationChosen();
+        var canSave = desigOk && totalOk && offBy === 0 && named > 0 && outcomesOk;
+
+        // Both actions stay inert until everything balances.
+        $('#btnDraft, #btnSubmit').prop('disabled', !canSave);
+
+        var parts = ['<span class="' + (totalOk ? 'ok' : 'off') + '">Skill weight total: ' + fmt(total) + ' of ' + TOTAL_WEIGHT + '</span>'];
+        if (!desigOk) parts.unshift('<span class="off">Choose the sangh and designation at the top first</span>');
+        if (offBy > 0) parts.push('<span class="off">Please check total — ' + offBy + ' skill' + (offBy === 1 ? '' : 's') + ' whose attribute weights do not match</span>');
+        if (!outcomesOk) parts.push('<span class="off">LDP role profiles need at least ' + MIN_OUTCOMES_LDP + ' key outcomes — ' + namedOutcomes + ' given</span>');
+        if (canSave) parts.push('<span class="ok">Ready to save or submit</span>');
+        $('#totalsLine').html(parts.join('<br>'));
+        return canSave;
+    }
+
+    $('#addAttr').on('click', function () {
+        if ($('#attrList .rp-attr-block').length >= MAX_ATTRS) return;
+        $('#attrList').append(attrBlock(attrIndex++)); renumber(); refreshLimits(); recalcWeights();
+    });
+    $('#attrList').on('click', '.js-remove-attr', function () {
+        $(this).closest('.rp-attr-block').remove(); renumber(); refreshLimits(); recalcWeights();
+    });
+    $('#attrList').on('click', '.js-add-skill', function () {
+        var $b = $(this).closest('.rp-attr-block');
+        if ($b.find('.rp-skill-row').length >= MAX_SKILLS) return;
+        $b.find('.js-skill-list').append(skillRow($b.data('index'))); refreshLimits(); recalcWeights();
+    });
+    $('#attrList').on('click', '.js-remove-skill', function () {
+        var $list = $(this).closest('.js-skill-list');
+        if ($list.children().length > 1) $(this).closest('.rp-skill-row').remove();
+        refreshLimits(); recalcWeights();
+    });
+    $('#attrList').on('input', '.js-attr-weight', recalcWeights);
+    $('#attrList').on('input', '.rp-skill-row input', recalcWeights);
+
+    $('#addOutcome').on('click', function () {
+        var max = currentProgram === 'ldp' ? MAX_OUTCOMES_LDP : MAX_OUTCOMES;
+        if ($('#outcomeList .rp-repeat-row').length >= max) return;
+        $('#outcomeList').append('<div class="rp-repeat-row"><input type="text" class="rp-input" name="outcomes" placeholder="Key outcome">'
+            + '<button type="button" class="rp-btn-remove js-remove-outcome"><i class="mdi mdi-close"></i></button></div>');
+        refreshOutcomeLimit(); recalcWeights();
+    });
+    $('#outcomeList').on('click', '.js-remove-outcome', function () {
+        if ($('#outcomeList .rp-repeat-row').length > 1) $(this).closest('.rp-repeat-row').remove();
+        refreshOutcomeLimit(); recalcWeights();
+    });
+    $('#outcomeList').on('input', 'input[name="outcomes"]', recalcWeights);
+
+    // Seed from a saved draft, else start with a single empty skill.
+    if (SEED_ATTRIBUTES.length) {
+        SEED_ATTRIBUTES.forEach(function (a) {
+            $('#addAttr').trigger('click');
+            var $b = $('#attrList .rp-attr-block').last();
+            $b.find('input[name^="attribute["]').val(a.attribute || '');
+            $b.find('.js-assessment').val(a.assessment || '');
+            $b.find('.js-attr-weight').val(a.weight === null ? '' : a.weight);
+            (a.skills || []).forEach(function (sk, i) {
+                if (i > 0) $b.find('.js-add-skill').trigger('click');
+                var $row = $b.find('.rp-skill-row').eq(i);
+                $row.find('input[type="text"]').val(sk.skill || '');
+                $row.find('input[type="number"]').val(sk.weight === null ? '' : sk.weight);
+            });
+        });
+    } else {
+        $('#addAttr').trigger('click');
+    }
+
+    if (SEED_OUTCOMES.length) {
+        $('#outcomeList').empty();
+        SEED_OUTCOMES.slice(0, currentProgram === 'ldp' ? MAX_OUTCOMES_LDP : MAX_OUTCOMES).forEach(function (o) {
+            $('#outcomeList').append('<div class="rp-repeat-row"><input type="text" class="rp-input" name="outcomes">'
+                + '<button type="button" class="rp-btn-remove js-remove-outcome"><i class="mdi mdi-close"></i></button></div>');
+            $('#outcomeList .rp-repeat-row:last input').val(o);
+        });
+    }
+
+    refreshLimits(); refreshOutcomeLimit(); recalcWeights();
+
+    $('#profileForm').on('submit', function (e) {
+        if (!recalcWeights()) {
+            e.preventDefault();
+            var msg = 'Please check total.\n\nSkill weights must add up to ' + TOTAL_WEIGHT
+                + ', and each skill’s attribute weights must equal that skill’s own weight.';
+            if (currentProgram === 'ldp') {
+                msg += '\n\nLDP role profiles also need ' + MIN_OUTCOMES_LDP + ' to ' + MAX_OUTCOMES_LDP + ' key outcomes.';
+            }
+            window.alert(msg);
+        }
+    });
+});
+</script>
